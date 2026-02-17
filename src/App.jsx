@@ -3,6 +3,16 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import './App.css'
 
+const MultiLinePlaceholder = ({ text }) => {
+  return (
+    <div className="multi-line-placeholder">
+      {text.split('\n').map((line, index) => (
+        <div key={index} className="placeholder-line">{line}</div>
+      ))}
+    </div>
+  )
+}
+
 const LLM_PROVIDERS = [
   {
     id: 'openai',
@@ -195,6 +205,11 @@ function App() {
   const [selectedText, setSelectedText] = useState('')
   const [selectionRange, setSelectionRange] = useState({ start: 0, end: 0 })
   const [isBeautifying, setIsBeautifying] = useState(false)
+  const [showLocalEditPanel, setShowLocalEditPanel] = useState(false)
+  const [customPrompt, setCustomPrompt] = useState('')
+  const [isCustomGenerating, setIsCustomGenerating] = useState(false)
+  const [editorWidth, setEditorWidth] = useState(50)
+  const [isDragging, setIsDragging] = useState(false)
 
   useEffect(() => {
     localStorage.setItem('markdown-documents', JSON.stringify(documents))
@@ -396,9 +411,11 @@ function App() {
         setSelectedText(selected)
         setSelectionRange({ start, end })
         setShowBeautifyBtn(true)
+        setShowLocalEditPanel(false)
       }
     } else {
       setShowBeautifyBtn(false)
+      setShowLocalEditPanel(false)
     }
   }
 
@@ -410,10 +427,134 @@ function App() {
         const end = textarea.selectionEnd
         if (start === end) {
           setShowBeautifyBtn(false)
+          setShowLocalEditPanel(false)
         }
       }
     }, 100)
   }
+
+  const generateCustomContent = async () => {
+    if (!selectedText) return
+    if (!llmConfig.apiKey) {
+      alert('请先在设置中配置 API Key')
+      return
+    }
+    if (!customPrompt.trim()) {
+      alert('请输入提示词')
+      return
+    }
+
+    setIsCustomGenerating(true)
+
+    try {
+      let response
+      const provider = LLM_PROVIDERS.find(p => p.id === llmConfig.provider)
+      const prompt = `参考以下内容：\n\n${selectedText}\n\n请根据以下要求处理：${customPrompt}\n\n直接返回处理后的内容，不需要额外说明。`
+
+      if (provider?.id === 'anthropic') {
+        response = await fetch(`${llmConfig.baseUrl}/v1/messages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': llmConfig.apiKey,
+            'anthropic-version': '2023-06-01'
+          },
+          body: JSON.stringify({
+            model: llmConfig.model,
+            max_tokens: llmConfig.maxTokens,
+            temperature: llmConfig.temperature,
+            messages: [{ role: 'user', content: prompt }]
+          })
+        })
+        const data = await response.json()
+        const result = data.content?.[0]?.text || selectedText
+        replaceSelectedText(result)
+      } else if (provider?.id === 'ollama') {
+        response = await fetch(`${llmConfig.baseUrl}/api/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: llmConfig.model,
+            prompt: prompt,
+            stream: false,
+            options: {
+              temperature: llmConfig.temperature,
+              num_predict: llmConfig.maxTokens,
+              top_p: llmConfig.topP,
+              frequency_penalty: llmConfig.frequencyPenalty,
+              presence_penalty: llmConfig.presencePenalty
+            }
+          })
+        })
+        const data = await response.json()
+        const result = data.response || selectedText
+        replaceSelectedText(result)
+      } else {
+        response = await fetch(`${llmConfig.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${llmConfig.apiKey}`
+          },
+          body: JSON.stringify({
+            model: llmConfig.model,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: llmConfig.temperature,
+            max_tokens: llmConfig.maxTokens,
+            top_p: llmConfig.topP,
+            frequency_penalty: llmConfig.frequencyPenalty,
+            presence_penalty: llmConfig.presencePenalty
+          })
+        })
+        const data = await response.json()
+        const result = data.choices?.[0]?.message?.content || selectedText
+        replaceSelectedText(result)
+      }
+      
+      setShowLocalEditPanel(false)
+      setShowBeautifyBtn(false)
+      setCustomPrompt('')
+    } catch (error) {
+      console.error('生成失败:', error)
+      alert('生成失败，请检查配置')
+    } finally {
+      setIsCustomGenerating(false)
+    }
+  }
+
+  const handleDragStart = (e) => {
+    setIsDragging(true)
+  }
+
+  const handleDragEnd = () => {
+    setIsDragging(false)
+  }
+
+  const handleDrag = (e) => {
+    if (!isDragging) return
+    const rect = document.querySelector('.panes-container').getBoundingClientRect()
+    const newWidth = ((e.clientX - rect.left) / rect.width) * 100
+    const clampedWidth = Math.max(20, Math.min(80, newWidth))
+    setEditorWidth(clampedWidth)
+  }
+
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleDrag)
+      document.addEventListener('mouseup', handleDragEnd)
+      document.body.style.userSelect = 'none'
+      document.body.style.cursor = 'col-resize'
+    } else {
+      document.removeEventListener('mousemove', handleDrag)
+      document.removeEventListener('mouseup', handleDragEnd)
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+    }
+    return () => {
+      document.removeEventListener('mousemove', handleDrag)
+      document.removeEventListener('mouseup', handleDragEnd)
+    }
+  }, [isDragging])
 
   const beautifyText = async () => {
     if (!selectedText) return
@@ -613,13 +754,21 @@ function App() {
                 </button>
               </div>
               <div className="ai-panel-content">
-                <textarea
-                  className="ai-prompt"
-                  placeholder="输入你的需求，例如：\n• 帮我写一段关于...的介绍\n• 继续这段内容\n• 帮我优化这篇文章"
-                  value={aiPrompt}
-                  onChange={(e) => setAiPrompt(e.target.value)}
-                  onKeyDown={(e) => e.ctrlKey && e.key === 'Enter' && callAI()}
-                />
+                <div className="textarea-with-placeholder">
+                  {!aiPrompt && (
+                    <MultiLinePlaceholder text="输入你的需求，例如：
+• 帮我写一段关于...的介绍
+• 继续这段内容
+• 帮我优化这篇文章" />
+                  )}
+                  <textarea
+                    className="ai-prompt"
+                    style={{ background: aiPrompt ? 'white' : 'transparent' }}
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    onKeyDown={(e) => e.ctrlKey && e.key === 'Enter' && callAI()}
+                  />
+                </div>
                 <button 
                   className="ai-generate-btn"
                   onClick={callAI}
@@ -645,38 +794,111 @@ function App() {
               </div>
             </div>
           )}
-          <div className="editor-pane">
+          <div className="panes-container">
+            <div className="editor-pane" style={{ flex: `${editorWidth}%` }}>
             <div className="pane-header">
               <span className="doc-name">{currentDoc?.title || '未命名文档'}</span>
               <div className="pane-actions">
-                {showBeautifyBtn && (
-                  <button
-                    className="beautify-btn-small"
-                    onClick={beautifyText}
-                    disabled={isBeautifying}
-                  >
-                    {isBeautifying ? '美化中...' : '✨ 美化选中文本'}
-                  </button>
+                {showBeautifyBtn && !showLocalEditPanel && (
+                  <>
+                    <button
+                      className="beautify-btn-small"
+                      onClick={beautifyText}
+                      disabled={isBeautifying}
+                    >
+                      {isBeautifying ? '美化中...' : '✨ 一键美化'}
+                    </button>
+                    <button
+                      className="custom-edit-btn"
+                      onClick={() => setShowLocalEditPanel(true)}
+                    >
+                      🎨 局部编辑
+                    </button>
+                  </>
                 )}
-                <span className="pane-label">编辑器</span>
+                {!showBeautifyBtn && <span className="pane-label">编辑器</span>}
               </div>
             </div>
+            {showLocalEditPanel && (
+              <div className="local-edit-panel">
+                <div className="local-edit-header">
+                  <span className="local-edit-title">🎨 局部编辑 - 选中文本:</span>
+                  <button 
+                    className="close-panel-btn"
+                    onClick={() => {
+                      setShowLocalEditPanel(false)
+                      setCustomPrompt('')
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="selected-preview">
+                  {selectedText}
+                </div>
+                <div className="prompt-input-section">
+                  <label>请输入你的需求：</label>
+                  <div className="textarea-with-placeholder">
+                    {!customPrompt && (
+                      <MultiLinePlaceholder text="例如：
+• 翻译成英文
+• 扩展成一段详细的描述
+• 改成更正式的语气
+• 总结成一句话
+• 改成代码格式" />
+                    )}
+                    <textarea
+                      className="custom-prompt-input"
+                      style={{ background: customPrompt ? 'white' : 'transparent' }}
+                      value={customPrompt}
+                      onChange={(e) => setCustomPrompt(e.target.value)}
+                      onKeyDown={(e) => e.ctrlKey && e.key === 'Enter' && generateCustomContent()}
+                    />
+                  </div>
+                </div>
+                <div className="local-edit-actions">
+                  <button
+                    className="generate-btn"
+                    onClick={generateCustomContent}
+                    disabled={isCustomGenerating}
+                  >
+                    {isCustomGenerating ? '生成中...' : '🚀 生成'}
+                  </button>
+                  <button
+                    className="cancel-edit-btn"
+                    onClick={() => {
+                      setShowLocalEditPanel(false)
+                      setCustomPrompt('')
+                    }}
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            )}
             <textarea
               className="editor"
               value={currentDoc?.content || ''}
               onChange={(e) => updateCurrentDoc(e.target.value)}
               onSelect={handleTextSelection}
               onMouseUp={handleMouseUp}
-              placeholder="在这里输入 Markdown 内容，选择文本后可点击上方按钮美化..."
+              placeholder="在这里输入 Markdown 内容，选择文本后可使用美化或局部编辑功能..."
             />
           </div>
-          <div className="preview-pane">
+          <div 
+            className="resizer"
+            onMouseDown={handleDragStart}
+          >
+            <div className="resizer-handle"></div>
+          </div>
+          <div className="preview-pane" style={{ flex: `${100 - editorWidth}%` }}>
             <div className="pane-header">预览</div>
             <div className="preview">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {currentDoc?.content || ''}
               </ReactMarkdown>
             </div>
+          </div>
           </div>
         </div>
       </div>
