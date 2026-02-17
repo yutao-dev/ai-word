@@ -13,6 +13,49 @@ const MultiLinePlaceholder = ({ text }) => {
   )
 }
 
+const DiffHighlighter = ({ original, modified, type }) => {
+  const originalLines = original.split('\n')
+  const modifiedLines = modified.split('\n')
+
+  const findChangedLines = () => {
+    const maxLength = Math.max(originalLines.length, modifiedLines.length)
+    const changedLines = new Set()
+
+    for (let i = 0; i < maxLength; i++) {
+      const originalLine = originalLines[i] || ''
+      const modifiedLine = modifiedLines[i] || ''
+      if (originalLine !== modifiedLine) {
+        changedLines.add(i)
+      }
+    }
+
+    return changedLines
+  }
+
+  const changedLines = findChangedLines()
+  const lines = type === 'original' ? originalLines : modifiedLines
+
+  return (
+    <div className="diff-content">
+      {lines.map((line, index) => {
+        const isChanged = changedLines.has(index)
+        const bgClass = type === 'original' 
+          ? (isChanged ? 'diff-removed' : '')
+          : (isChanged ? 'diff-added' : '')
+        
+        return (
+          <div 
+            key={index} 
+            className={`diff-line ${bgClass}`}
+          >
+            {line || '\u00A0'}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 const LLM_PROVIDERS = [
   {
     id: 'openai',
@@ -210,6 +253,9 @@ function App() {
   const [isCustomGenerating, setIsCustomGenerating] = useState(false)
   const [editorWidth, setEditorWidth] = useState(50)
   const [isDragging, setIsDragging] = useState(false)
+  const [showDiffView, setShowDiffView] = useState(false)
+  const [originalContent, setOriginalContent] = useState('')
+  const [modifiedContent, setModifiedContent] = useState('')
 
   useEffect(() => {
     localStorage.setItem('markdown-documents', JSON.stringify(documents))
@@ -451,6 +497,7 @@ function App() {
       const provider = LLM_PROVIDERS.find(p => p.id === llmConfig.provider)
       const prompt = `参考以下内容：\n\n${selectedText}\n\n请根据以下要求处理：${customPrompt}\n\n直接返回处理后的内容，不需要额外说明。`
 
+      let result = selectedText
       if (provider?.id === 'anthropic') {
         response = await fetch(`${llmConfig.baseUrl}/v1/messages`, {
           method: 'POST',
@@ -467,8 +514,7 @@ function App() {
           })
         })
         const data = await response.json()
-        const result = data.content?.[0]?.text || selectedText
-        replaceSelectedText(result)
+        result = data.content?.[0]?.text || selectedText
       } else if (provider?.id === 'ollama') {
         response = await fetch(`${llmConfig.baseUrl}/api/generate`, {
           method: 'POST',
@@ -487,8 +533,7 @@ function App() {
           })
         })
         const data = await response.json()
-        const result = data.response || selectedText
-        replaceSelectedText(result)
+        result = data.response || selectedText
       } else {
         response = await fetch(`${llmConfig.baseUrl}/chat/completions`, {
           method: 'POST',
@@ -507,10 +552,17 @@ function App() {
           })
         })
         const data = await response.json()
-        const result = data.choices?.[0]?.message?.content || selectedText
-        replaceSelectedText(result)
+        result = data.choices?.[0]?.message?.content || selectedText
       }
-      
+
+      const content = currentDoc?.content || ''
+      const before = content.substring(0, selectionRange.start)
+      const after = content.substring(selectionRange.end)
+      const newContent = before + result + after
+
+      setOriginalContent(content)
+      setModifiedContent(newContent)
+      setShowDiffView(true)
       setShowLocalEditPanel(false)
       setShowBeautifyBtn(false)
       setCustomPrompt('')
@@ -571,6 +623,7 @@ function App() {
       const provider = LLM_PROVIDERS.find(p => p.id === llmConfig.provider)
       const prompt = `请优化和美化以下文本，使其表达更清晰、更专业，保持原意不变，直接返回美化后的内容，不需要额外说明：\n\n${selectedText}`
 
+      let result = selectedText
       if (provider?.id === 'anthropic') {
         response = await fetch(`${llmConfig.baseUrl}/v1/messages`, {
           method: 'POST',
@@ -587,8 +640,7 @@ function App() {
           })
         })
         const data = await response.json()
-        const beautified = data.content?.[0]?.text || selectedText
-        replaceSelectedText(beautified)
+        result = data.content?.[0]?.text || selectedText
       } else if (provider?.id === 'ollama') {
         response = await fetch(`${llmConfig.baseUrl}/api/generate`, {
           method: 'POST',
@@ -607,8 +659,7 @@ function App() {
           })
         })
         const data = await response.json()
-        const beautified = data.response || selectedText
-        replaceSelectedText(beautified)
+        result = data.response || selectedText
       } else {
         response = await fetch(`${llmConfig.baseUrl}/chat/completions`, {
           method: 'POST',
@@ -627,9 +678,17 @@ function App() {
           })
         })
         const data = await response.json()
-        const beautified = data.choices?.[0]?.message?.content || selectedText
-        replaceSelectedText(beautified)
+        result = data.choices?.[0]?.message?.content || selectedText
       }
+
+      const content = currentDoc?.content || ''
+      const before = content.substring(0, selectionRange.start)
+      const after = content.substring(selectionRange.end)
+      const newContent = before + result + after
+
+      setOriginalContent(content)
+      setModifiedContent(newContent)
+      setShowDiffView(true)
     } catch (error) {
       console.error('美化失败:', error)
       alert('美化失败，请检查配置')
@@ -638,13 +697,21 @@ function App() {
     }
   }
 
-  const replaceSelectedText = (newText) => {
-    const content = currentDoc?.content || ''
-    const before = content.substring(0, selectionRange.start)
-    const after = content.substring(selectionRange.end)
-    const updatedContent = before + newText + after
-    updateCurrentDoc(updatedContent)
-    setSelectedText('')
+  const confirmReplace = () => {
+    if (confirm('确定要应用这些修改吗？')) {
+      updateCurrentDoc(modifiedContent)
+      setShowDiffView(false)
+      setSelectedText('')
+      setShowBeautifyBtn(false)
+    }
+  }
+
+  const cancelReplace = () => {
+    if (confirm('确定要放弃这些修改吗？')) {
+      setShowDiffView(false)
+      setSelectedText('')
+      setShowBeautifyBtn(false)
+    }
   }
 
   return (
@@ -902,6 +969,69 @@ function App() {
           </div>
         </div>
       </div>
+
+      {showDiffView && (
+        <div className="diff-modal-overlay">
+          <div className="diff-modal">
+            <div className="diff-modal-header">
+              <h2>📋 文档对比</h2>
+              <button 
+                className="close-btn"
+                onClick={cancelReplace}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="diff-legend">
+              <div className="legend-item">
+                <span className="legend-color removed-color"></span>
+                <span>删除的内容</span>
+              </div>
+              <div className="legend-item">
+                <span className="legend-color added-color"></span>
+                <span>新增的内容</span>
+              </div>
+            </div>
+            <div className="diff-container">
+              <div className="diff-pane">
+                <div className="diff-pane-header">📄 原始文档</div>
+                <div className="diff-scroll">
+                  <DiffHighlighter 
+                    original={originalContent} 
+                    modified={modifiedContent} 
+                    type="original"
+                  />
+                </div>
+              </div>
+              <div className="diff-divider"></div>
+              <div className="diff-pane">
+                <div className="diff-pane-header">✨ 修改后文档</div>
+                <div className="diff-scroll">
+                  <DiffHighlighter 
+                    original={originalContent} 
+                    modified={modifiedContent} 
+                    type="modified"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="diff-modal-footer">
+              <button 
+                className="cancel-replace-btn"
+                onClick={cancelReplace}
+              >
+                ❌ 放弃修改
+              </button>
+              <button 
+                className="confirm-replace-btn"
+                onClick={confirmReplace}
+              >
+                ✅ 确认替代
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showSettings && (
         <div className="modal-overlay" onClick={() => setShowSettings(false)}>
