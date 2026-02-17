@@ -1,6 +1,21 @@
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle } from 'docx'
+import { 
+  Document, 
+  Packer, 
+  Paragraph, 
+  TextRun, 
+  HeadingLevel, 
+  AlignmentType, 
+  BorderStyle,
+  Table,
+  TableRow,
+  TableCell,
+  WidthType,
+  VerticalAlign,
+  ExternalHyperlink,
+  LevelFormat
+} from 'docx'
 import { marked } from 'marked'
 import { saveAs } from 'file-saver'
 
@@ -138,11 +153,162 @@ export const exportAsPdf = async (content, title) => {
   }
 }
 
+const parseInlineFormatting = (text) => {
+  if (!text) return [new TextRun({ text: '' })]
+  
+  const tokens = []
+  let remaining = text
+  
+  const patterns = [
+    { regex: /^\*\*\*(.+?)\*\*\*/, type: 'bold-italic' },
+    { regex: /^\*\*(.+?)\*\*/, type: 'bold' },
+    { regex: /^\*(.+?)\*/, type: 'italic' },
+    { regex: /^~~(.+?)~~/, type: 'strikethrough' },
+    { regex: /^`(.+?)`/, type: 'code' },
+    { regex: /^\[([^\]]+)\]\(([^)]+)\)/, type: 'link' },
+    { regex: /^!\[([^\]]*)\]\(([^)]+)\)/, type: 'image' }
+  ]
+  
+  while (remaining.length > 0) {
+    let matched = false
+    
+    for (const pattern of patterns) {
+      const match = remaining.match(pattern.regex)
+      if (match) {
+        if (pattern.type === 'bold-italic') {
+          tokens.push({ text: match[1], bold: true, italics: true })
+        } else if (pattern.type === 'bold') {
+          tokens.push({ text: match[1], bold: true })
+        } else if (pattern.type === 'italic') {
+          tokens.push({ text: match[1], italics: true })
+        } else if (pattern.type === 'strikethrough') {
+          tokens.push({ text: match[1], strike: true })
+        } else if (pattern.type === 'code') {
+          tokens.push({ text: match[1], font: 'Courier New', shading: { fill: 'F0F0F0' } })
+        } else if (pattern.type === 'link') {
+          tokens.push({ text: match[1], link: match[2], color: '667eea', underline: {} })
+        } else if (pattern.type === 'image') {
+          tokens.push({ text: `[图片: ${match[1] || 'image'}]`, italics: true, color: '888888' })
+        }
+        remaining = remaining.slice(match[0].length)
+        matched = true
+        break
+      }
+    }
+    
+    if (!matched) {
+      const nextSpecial = remaining.search(/(\*\*\*|\*\*|\*|~~|`|\[|!)/)
+      if (nextSpecial === -1) {
+        tokens.push({ text: remaining })
+        break
+      } else if (nextSpecial === 0) {
+        tokens.push({ text: remaining[0] })
+        remaining = remaining.slice(1)
+      } else {
+        tokens.push({ text: remaining.slice(0, nextSpecial) })
+        remaining = remaining.slice(nextSpecial)
+      }
+    }
+  }
+  
+  return tokens.map(token => new TextRun(token))
+}
+
+const createParagraphWithFormatting = (text, options = {}) => {
+  return new Paragraph({
+    children: parseInlineFormatting(text),
+    ...options
+  })
+}
+
+const parseTable = (lines, startIndex) => {
+  const tableLines = []
+  let currentIndex = startIndex
+  
+  while (currentIndex < lines.length) {
+    const line = lines[currentIndex]
+    if (line.trim() === '' || !line.includes('|')) {
+      break
+    }
+    tableLines.push(line)
+    currentIndex++
+  }
+  
+  if (tableLines.length < 2) {
+    return { rows: null, endIndex: startIndex }
+  }
+  
+  const headerLine = tableLines[0]
+  const separatorLine = tableLines[1]
+  const dataLines = tableLines.slice(2)
+  
+  const parseTableRow = (line) => {
+    return line
+      .split('|')
+      .map(cell => cell.trim())
+      .filter((_, index, arr) => index > 0 && index < arr.length - 1)
+  }
+  
+  const headerCells = parseTableRow(headerLine)
+  const dataRows = dataLines.map(parseTableRow)
+  
+  const alignments = separatorLine
+    .split('|')
+    .filter((_, index, arr) => index > 0 && index < arr.length - 1)
+    .map(cell => {
+      const trimmed = cell.trim()
+      if (trimmed.startsWith(':') && trimmed.endsWith(':')) return 'center'
+      if (trimmed.endsWith(':')) return 'right'
+      return 'left'
+    })
+  
+  const tableRows = []
+  
+  tableRows.push(new TableRow({
+    children: headerCells.map((cell, index) => 
+      new TableCell({
+        children: [new Paragraph({ 
+          children: parseInlineFormatting(cell),
+          alignment: alignments[index] === 'center' ? AlignmentType.CENTER : 
+                     alignments[index] === 'right' ? AlignmentType.RIGHT : AlignmentType.LEFT
+        })],
+        shading: { fill: 'F5F5F5' },
+        verticalAlign: VerticalAlign.CENTER,
+        width: { size: 100 / headerCells.length, type: WidthType.PERCENTAGE }
+      })
+    ),
+    tableHeader: true
+  }))
+  
+  for (const row of dataRows) {
+    tableRows.push(new TableRow({
+      children: row.map((cell, index) => 
+        new TableCell({
+          children: [new Paragraph({ 
+            children: parseInlineFormatting(cell),
+            alignment: alignments[index] === 'center' ? AlignmentType.CENTER : 
+                       alignments[index] === 'right' ? AlignmentType.RIGHT : AlignmentType.LEFT
+          })],
+          verticalAlign: VerticalAlign.CENTER,
+          width: { size: 100 / headerCells.length, type: WidthType.PERCENTAGE }
+        })
+      )
+    }))
+  }
+  
+  return { 
+    rows: tableRows, 
+    endIndex: currentIndex - 1 
+  }
+}
+
 const parseMarkdownToDocx = (content) => {
   const lines = content.split('\n')
   const children = []
   let inCodeBlock = false
   let codeContent = []
+  let inBlockquote = false
+  let blockquoteContent = []
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -153,15 +319,18 @@ const parseMarkdownToDocx = (content) => {
         codeContent = []
       } else {
         inCodeBlock = false
-        children.push(new Paragraph({
-          children: [new TextRun({
-            text: codeContent.join('\n'),
-            font: 'Courier New',
-            size: 20,
-            shading: { fill: 'F0F0F0' }
-          })],
-          spacing: { before: 200, after: 200 }
-        }))
+        codeContent.forEach(codeLine => {
+          children.push(new Paragraph({
+            children: [new TextRun({
+              text: codeLine || ' ',
+              font: 'Courier New',
+              size: 20
+            })],
+            shading: { fill: 'F5F5F5' },
+            spacing: { before: 0, after: 0, line: 276 }
+          }))
+        })
+        children.push(new Paragraph({ text: '' }))
       }
       continue
     }
@@ -171,55 +340,103 @@ const parseMarkdownToDocx = (content) => {
       continue
     }
     
-    if (line.startsWith('# ')) {
-      children.push(new Paragraph({
-        text: line.slice(2),
-        heading: HeadingLevel.HEADING_1,
-        spacing: { before: 400, after: 200 },
-        border: {
-          bottom: { color: '667eea', size: 12, style: BorderStyle.SINGLE }
+    if (line.startsWith('>')) {
+      inBlockquote = true
+      const quoteLine = line.replace(/^>\s?/, '')
+      blockquoteContent.push(quoteLine)
+      continue
+    } else if (inBlockquote) {
+      inBlockquote = false
+      blockquoteContent.forEach(qLine => {
+        children.push(new Paragraph({
+          children: parseInlineFormatting(qLine),
+          indent: { left: 720 },
+          spacing: { before: 60, after: 60 },
+          border: {
+            left: { color: '667eea', size: 24, style: BorderStyle.SINGLE }
+          }
+        }))
+      })
+      children.push(new Paragraph({ text: '' }))
+      blockquoteContent = []
+    }
+    
+    if (line.includes('|') && lines[i + 1]?.includes('|') && /^\|?[\s-:|]+\|?$/.test(lines[i + 1])) {
+      const { rows, endIndex } = parseTable(lines, i)
+      if (rows && rows.length > 0) {
+        children.push(new Table({
+          rows: rows,
+          width: { size: 100, type: WidthType.PERCENTAGE }
+        }))
+        children.push(new Paragraph({ text: '' }))
+        i = endIndex
+      }
+      continue
+    }
+    
+    if (line.match(/^#{1,6}\s/)) {
+      const match = line.match(/^(#{1,6})\s+(.*)/)
+      if (match) {
+        const level = match[1].length
+        const text = match[2]
+        const headingMap = {
+          1: HeadingLevel.HEADING_1,
+          2: HeadingLevel.HEADING_2,
+          3: HeadingLevel.HEADING_3,
+          4: HeadingLevel.HEADING_4,
+          5: HeadingLevel.HEADING_5,
+          6: HeadingLevel.HEADING_6
         }
-      }))
-    } else if (line.startsWith('## ')) {
+        const spacingMap = {
+          1: { before: 400, after: 200 },
+          2: { before: 300, after: 150 },
+          3: { before: 240, after: 120 },
+          4: { before: 200, after: 100 },
+          5: { before: 160, after: 80 },
+          6: { before: 120, after: 60 }
+        }
+        
+        children.push(new Paragraph({
+          children: parseInlineFormatting(text),
+          heading: headingMap[level],
+          spacing: spacingMap[level],
+          border: level === 1 ? {
+            bottom: { color: '667eea', size: 12, style: BorderStyle.SINGLE }
+          } : undefined
+        }))
+      }
+      continue
+    }
+    
+    const bulletMatch = line.match(/^(\s*)[-*+]\s+(.*)/)
+    if (bulletMatch) {
+      const indent = bulletMatch[1].length
+      const level = Math.min(Math.floor(indent / 2), 3)
+      const text = bulletMatch[2]
+      
       children.push(new Paragraph({
-        text: line.slice(3),
-        heading: HeadingLevel.HEADING_2,
-        spacing: { before: 300, after: 150 }
-      }))
-    } else if (line.startsWith('### ')) {
-      children.push(new Paragraph({
-        text: line.slice(4),
-        heading: HeadingLevel.HEADING_3,
-        spacing: { before: 200, after: 100 }
-      }))
-    } else if (line.startsWith('#### ')) {
-      children.push(new Paragraph({
-        text: line.slice(5),
-        heading: HeadingLevel.HEADING_4,
-        spacing: { before: 200, after: 100 }
-      }))
-    } else if (line.startsWith('- ') || line.startsWith('* ')) {
-      children.push(new Paragraph({
-        text: line.slice(2),
-        bullet: { level: 0 },
+        children: parseInlineFormatting(text),
+        bullet: { level },
         spacing: { before: 60, after: 60 }
       }))
-    } else if (line.match(/^\d+\.\s/)) {
+      continue
+    }
+    
+    const orderedMatch = line.match(/^(\s*)(\d+)\.\s+(.*)/)
+    if (orderedMatch) {
+      const indent = orderedMatch[1].length
+      const level = Math.min(Math.floor(indent / 2), 3)
+      const text = orderedMatch[3]
+      
       children.push(new Paragraph({
-        text: line.replace(/^\d+\.\s/, ''),
-        numbering: { reference: 'default-numbering', level: 0 },
+        children: parseInlineFormatting(text),
+        numbering: { reference: 'ordered-list', level },
         spacing: { before: 60, after: 60 }
       }))
-    } else if (line.startsWith('> ')) {
-      children.push(new Paragraph({
-        text: line.slice(2),
-        indent: { left: 720 },
-        spacing: { before: 100, after: 100 },
-        border: {
-          left: { color: '667eea', size: 24, style: BorderStyle.SINGLE }
-        }
-      }))
-    } else if (line.trim() === '---') {
+      continue
+    }
+    
+    if (line.trim() === '---' || line.trim() === '***' || line.trim() === '___') {
       children.push(new Paragraph({
         text: '',
         border: {
@@ -227,64 +444,30 @@ const parseMarkdownToDocx = (content) => {
         },
         spacing: { before: 200, after: 200 }
       }))
-    } else if (line.trim() === '') {
-      children.push(new Paragraph({ text: '' }))
-    } else {
-      const boldRegex = /\*\*(.+?)\*\*/g
-      const italicRegex = /\*(.+?)\*/g
-      const codeRegex = /`(.+?)`/g
-      
-      const parts = []
-      
-      const allMatches = []
-      let match
-      
-      while ((match = boldRegex.exec(line)) !== null) {
-        allMatches.push({ start: match.index, end: match.index + match[0].length, text: match[1], type: 'bold' })
-      }
-      while ((match = italicRegex.exec(line)) !== null) {
-        allMatches.push({ start: match.index, end: match.index + match[0].length, text: match[1], type: 'italic' })
-      }
-      while ((match = codeRegex.exec(line)) !== null) {
-        allMatches.push({ start: match.index, end: match.index + match[0].length, text: match[1], type: 'code' })
-      }
-      
-      allMatches.sort((a, b) => a.start - b.start)
-      
-      let pos = 0
-      for (const m of allMatches) {
-        if (m.start > pos) {
-          parts.push({ text: line.slice(pos, m.start), type: 'normal' })
-        }
-        parts.push({ text: m.text, type: m.type })
-        pos = m.end
-      }
-      if (pos < line.length) {
-        parts.push({ text: line.slice(pos), type: 'normal' })
-      }
-      
-      if (parts.length === 0) {
-        parts.push({ text: line, type: 'normal' })
-      }
-      
-      const textRuns = parts.map(part => {
-        const runOptions = { text: part.text }
-        if (part.type === 'bold') {
-          runOptions.bold = true
-        } else if (part.type === 'italic') {
-          runOptions.italics = true
-        } else if (part.type === 'code') {
-          runOptions.font = 'Courier New'
-          runOptions.shading = { fill: 'F0F0F0' }
-        }
-        return new TextRun(runOptions)
-      })
-      
-      children.push(new Paragraph({
-        children: textRuns,
-        spacing: { before: 60, after: 60 }
-      }))
+      continue
     }
+    
+    if (line.trim() === '') {
+      children.push(new Paragraph({ text: '' }))
+      continue
+    }
+    
+    children.push(createParagraphWithFormatting(line, {
+      spacing: { before: 60, after: 60 }
+    }))
+  }
+  
+  if (inBlockquote && blockquoteContent.length > 0) {
+    blockquoteContent.forEach(qLine => {
+      children.push(new Paragraph({
+        children: parseInlineFormatting(qLine),
+        indent: { left: 720 },
+        spacing: { before: 60, after: 60 },
+        border: {
+          left: { color: '667eea', size: 24, style: BorderStyle.SINGLE }
+        }
+      }))
+    })
   }
   
   return children
@@ -298,18 +481,34 @@ export const exportAsWord = async (content, title) => {
     
     const doc = new Document({
       numbering: {
-        config: [{
-          reference: 'default-numbering',
-          levels: [{
-            level: 0,
-            format: 'decimal',
-            text: '%1.',
-            alignment: AlignmentType.START
-          }]
-        }]
+        config: [
+          {
+            reference: 'ordered-list',
+            levels: [0, 1, 2, 3].map(level => ({
+              level,
+              format: LevelFormat.DECIMAL,
+              text: `%${level + 1}.`,
+              alignment: AlignmentType.START,
+              style: {
+                paragraph: {
+                  indent: { left: 720 + level * 360, hanging: 260 }
+                }
+              }
+            }))
+          }
+        ]
       },
       sections: [{
-        properties: {},
+        properties: {
+          page: {
+            margin: {
+              top: 1440,
+              right: 1440,
+              bottom: 1440,
+              left: 1440
+            }
+          }
+        },
         children: children
       }]
     })
