@@ -192,7 +192,6 @@ function App() {
   const [isAiGenerating, setIsAiGenerating] = useState(false)
   const [aiResponse, setAiResponse] = useState('')
   const [showBeautifyBtn, setShowBeautifyBtn] = useState(false)
-  const [beautifyBtnPosition, setBeautifyBtnPosition] = useState({ x: 0, y: 0 })
   const [selectedText, setSelectedText] = useState('')
   const [selectionRange, setSelectionRange] = useState({ start: 0, end: 0 })
   const [isBeautifying, setIsBeautifying] = useState(false)
@@ -396,12 +395,6 @@ function App() {
       if (selected.trim().length > 0) {
         setSelectedText(selected)
         setSelectionRange({ start, end })
-        
-        const rect = textarea.getBoundingClientRect()
-        setBeautifyBtnPosition({
-          x: e.clientX - rect.left,
-          y: e.clientY - rect.top - 50
-        })
         setShowBeautifyBtn(true)
       }
     } else {
@@ -411,9 +404,13 @@ function App() {
 
   const handleMouseUp = (e) => {
     setTimeout(() => {
-      const selection = window.getSelection()
-      if (!selection || selection.toString().trim() === '') {
-        setShowBeautifyBtn(false)
+      const textarea = document.querySelector('.editor')
+      if (textarea) {
+        const start = textarea.selectionStart
+        const end = textarea.selectionEnd
+        if (start === end) {
+          setShowBeautifyBtn(false)
+        }
       }
     }, 100)
   }
@@ -444,7 +441,7 @@ function App() {
           body: JSON.stringify({
             model: llmConfig.model,
             max_tokens: llmConfig.maxTokens,
-            temperature: 0.7,
+            temperature: llmConfig.temperature,
             messages: [{ role: 'user', content: prompt }]
           })
         })
@@ -460,8 +457,11 @@ function App() {
             prompt: prompt,
             stream: false,
             options: {
-              temperature: 0.7,
-              num_predict: llmConfig.maxTokens
+              temperature: llmConfig.temperature,
+              num_predict: llmConfig.maxTokens,
+              top_p: llmConfig.topP,
+              frequency_penalty: llmConfig.frequencyPenalty,
+              presence_penalty: llmConfig.presencePenalty
             }
           })
         })
@@ -478,8 +478,11 @@ function App() {
           body: JSON.stringify({
             model: llmConfig.model,
             messages: [{ role: 'user', content: prompt }],
-            temperature: 0.7,
-            max_tokens: llmConfig.maxTokens
+            temperature: llmConfig.temperature,
+            max_tokens: llmConfig.maxTokens,
+            top_p: llmConfig.topP,
+            frequency_penalty: llmConfig.frequencyPenalty,
+            presence_penalty: llmConfig.presencePenalty
           })
         })
         const data = await response.json()
@@ -645,31 +648,27 @@ function App() {
           <div className="editor-pane">
             <div className="pane-header">
               <span className="doc-name">{currentDoc?.title || '未命名文档'}</span>
-              <span className="pane-label">编辑器</span>
+              <div className="pane-actions">
+                {showBeautifyBtn && (
+                  <button
+                    className="beautify-btn-small"
+                    onClick={beautifyText}
+                    disabled={isBeautifying}
+                  >
+                    {isBeautifying ? '美化中...' : '✨ 美化选中文本'}
+                  </button>
+                )}
+                <span className="pane-label">编辑器</span>
+              </div>
             </div>
-            <div className="editor-wrapper" onMouseUp={handleMouseUp}>
-              <textarea
-                className="editor"
-                value={currentDoc?.content || ''}
-                onChange={(e) => updateCurrentDoc(e.target.value)}
-                onSelect={handleTextSelection}
-                placeholder="在这里输入 Markdown 内容，选择文本后可一键美化..."
-              />
-              {showBeautifyBtn && (
-                <button
-                  className="beautify-btn"
-                  style={{
-                    position: 'absolute',
-                    left: beautifyBtnPosition.x,
-                    top: beautifyBtnPosition.y
-                  }}
-                  onClick={beautifyText}
-                  disabled={isBeautifying}
-                >
-                  {isBeautifying ? '美化中...' : '✨ 一键美化'}
-                </button>
-              )}
-            </div>
+            <textarea
+              className="editor"
+              value={currentDoc?.content || ''}
+              onChange={(e) => updateCurrentDoc(e.target.value)}
+              onSelect={handleTextSelection}
+              onMouseUp={handleMouseUp}
+              placeholder="在这里输入 Markdown 内容，选择文本后可点击上方按钮美化..."
+            />
           </div>
           <div className="preview-pane">
             <div className="pane-header">预览</div>
