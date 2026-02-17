@@ -13,22 +13,48 @@ const MultiLinePlaceholder = ({ text }) => {
   )
 }
 
-const DiffHighlighter = ({ original, modified, type }) => {
+const DiffHighlighter = ({ original, modified, originalSelection, modifiedResult, type }) => {
   const originalLines = original.split('\n')
   const modifiedLines = modified.split('\n')
+  const selectionLines = originalSelection ? originalSelection.split('\n') : []
+  const resultLines = modifiedResult ? modifiedResult.split('\n') : []
 
   const findChangedLines = () => {
-    const maxLength = Math.max(originalLines.length, modifiedLines.length)
     const changedLines = new Set()
-
-    for (let i = 0; i < maxLength; i++) {
-      const originalLine = originalLines[i] || ''
-      const modifiedLine = modifiedLines[i] || ''
-      if (originalLine !== modifiedLine) {
-        changedLines.add(i)
+    
+    if (type === 'original' && originalSelection) {
+      const selectionStartIndex = original.indexOf(originalSelection)
+      if (selectionStartIndex !== -1) {
+        const startLine = original.substring(0, selectionStartIndex).split('\n').length - 1
+        const endLine = startLine + selectionLines.length
+        
+        for (let i = startLine; i < endLine && i < originalLines.length; i++) {
+          changedLines.add(i)
+        }
+      }
+    } else if (type === 'modified' && modifiedResult) {
+      const resultStartIndex = modified.indexOf(modifiedResult)
+      if (resultStartIndex !== -1) {
+        const startLine = modified.substring(0, resultStartIndex).split('\n').length - 1
+        const endLine = startLine + resultLines.length
+        
+        for (let i = startLine; i < endLine && i < modifiedLines.length; i++) {
+          changedLines.add(i)
+        }
+      }
+    } else {
+      const maxLength = Math.max(originalLines.length, modifiedLines.length)
+      
+      for (let i = 0; i < maxLength; i++) {
+        const originalLine = originalLines[i] || ''
+        const modifiedLine = modifiedLines[i] || ''
+        
+        if (originalLine !== modifiedLine) {
+          changedLines.add(i)
+        }
       }
     }
-
+    
     return changedLines
   }
 
@@ -244,6 +270,8 @@ function App() {
   const [aiPrompt, setAiPrompt] = useState('')
   const [isAiGenerating, setIsAiGenerating] = useState(false)
   const [aiResponse, setAiResponse] = useState('')
+  const [streamBuffer, setStreamBuffer] = useState('')
+  const [displayedResponse, setDisplayedResponse] = useState('')
   const [showBeautifyBtn, setShowBeautifyBtn] = useState(false)
   const [selectedText, setSelectedText] = useState('')
   const [selectionRange, setSelectionRange] = useState({ start: 0, end: 0 })
@@ -256,6 +284,9 @@ function App() {
   const [showDiffView, setShowDiffView] = useState(false)
   const [originalContent, setOriginalContent] = useState('')
   const [modifiedContent, setModifiedContent] = useState('')
+  const [diffRange, setDiffRange] = useState({ start: 0, end: 0 })
+  const [originalSelectedText, setOriginalSelectedText] = useState('')
+  const [modifiedResultText, setModifiedResultText] = useState('')
 
   useEffect(() => {
     localStorage.setItem('markdown-documents', JSON.stringify(documents))
@@ -371,13 +402,83 @@ function App() {
 
     setIsAiGenerating(true)
     setAiResponse('')
+    setStreamBuffer('')
+    setDisplayedResponse('')
+
+    let renderInterval = null
 
     try {
-      let response
       const provider = LLM_PROVIDERS.find(p => p.id === llmConfig.provider)
+      let fullText = ''
 
-      if (provider?.id === 'anthropic') {
-        response = await fetch(`${llmConfig.baseUrl}/v1/messages`, {
+      const startRendering = () => {
+        renderInterval = setInterval(() => {
+          setStreamBuffer(currentBuffer => {
+            if (currentBuffer) {
+              setDisplayedResponse(prev => prev + currentBuffer)
+              return ''
+            }
+            return currentBuffer
+          })
+        }, 500)
+      }
+
+      const stopRendering = () => {
+        if (renderInterval) {
+          clearInterval(renderInterval)
+          renderInterval = null
+        }
+        setStreamBuffer(currentBuffer => {
+          if (currentBuffer) {
+            setDisplayedResponse(prev => prev + currentBuffer)
+          }
+          return ''
+        })
+      }
+
+      startRendering()
+
+      if (provider?.id === 'ollama') {
+        const response = await fetch(`${llmConfig.baseUrl}/api/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: llmConfig.model,
+            prompt: aiPrompt,
+            stream: true,
+            options: {
+              temperature: llmConfig.temperature,
+              num_predict: llmConfig.maxTokens
+            }
+          })
+        })
+
+        const reader = response.body?.getReader()
+        const decoder = new TextDecoder()
+
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            
+            const chunk = decoder.decode(value, { stream: true })
+            const lines = chunk.split('\n').filter(line => line.trim())
+            
+            for (const line of lines) {
+              try {
+                const data = JSON.parse(line)
+                if (data.response) {
+                  fullText += data.response
+                  setStreamBuffer(prev => prev + data.response)
+                }
+              } catch (e) {
+                continue
+              }
+            }
+          }
+        }
+      } else if (provider?.id === 'anthropic') {
+        const response = await fetch(`${llmConfig.baseUrl}/v1/messages`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -392,25 +493,10 @@ function App() {
           })
         })
         const data = await response.json()
-        setAiResponse(data.content?.[0]?.text || '无响应')
-      } else if (provider?.id === 'ollama') {
-        response = await fetch(`${llmConfig.baseUrl}/api/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: llmConfig.model,
-            prompt: aiPrompt,
-            stream: false,
-            options: {
-              temperature: llmConfig.temperature,
-              num_predict: llmConfig.maxTokens
-            }
-          })
-        })
-        const data = await response.json()
-        setAiResponse(data.response || '无响应')
+        fullText = data.content?.[0]?.text || '无响应'
+        setStreamBuffer(fullText)
       } else {
-        response = await fetch(`${llmConfig.baseUrl}/chat/completions`, {
+        const response = await fetch(`${llmConfig.baseUrl}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -423,17 +509,56 @@ function App() {
             max_tokens: llmConfig.maxTokens,
             top_p: llmConfig.topP,
             frequency_penalty: llmConfig.frequencyPenalty,
-            presence_penalty: llmConfig.presencePenalty
+            presence_penalty: llmConfig.presencePenalty,
+            stream: true
           })
         })
-        const data = await response.json()
-        setAiResponse(data.choices?.[0]?.message?.content || '无响应')
+
+        const reader = response.body?.getReader()
+        const decoder = new TextDecoder()
+
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            
+            const chunk = decoder.decode(value, { stream: true })
+            const lines = chunk.split('\n').filter(line => line.trim())
+            
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const dataStr = line.slice(6).trim()
+                if (dataStr === '[DONE]') continue
+                
+                try {
+                  const data = JSON.parse(dataStr)
+                  const delta = data.choices?.[0]?.delta?.content
+                  if (delta) {
+                    fullText += delta
+                    setStreamBuffer(prev => prev + delta)
+                  }
+                } catch (e) {
+                  continue
+                }
+              }
+            }
+          }
+        }
       }
+
+      stopRendering()
+      setAiResponse(fullText || '无响应')
     } catch (error) {
       console.error('AI 调用失败:', error)
-      setAiResponse(`调用失败: ${error.message}`)
+      setStreamBuffer(`调用失败: ${error.message}`)
+      setTimeout(() => {
+        setAiResponse(`调用失败: ${error.message}`)
+      }, 500)
     } finally {
       setIsAiGenerating(false)
+      if (renderInterval) {
+        clearInterval(renderInterval)
+      }
     }
   }
 
@@ -562,6 +687,9 @@ function App() {
 
       setOriginalContent(content)
       setModifiedContent(newContent)
+      setDiffRange({ start: selectionRange.start, end: selectionRange.start + result.length })
+      setOriginalSelectedText(selectedText)
+      setModifiedResultText(result)
       setShowDiffView(true)
       setShowLocalEditPanel(false)
       setShowBeautifyBtn(false)
@@ -688,6 +816,9 @@ function App() {
 
       setOriginalContent(content)
       setModifiedContent(newContent)
+      setDiffRange({ start: selectionRange.start, end: selectionRange.start + result.length })
+      setOriginalSelectedText(selectedText)
+      setModifiedResultText(result)
       setShowDiffView(true)
     } catch (error) {
       console.error('美化失败:', error)
@@ -843,17 +974,19 @@ function App() {
                 >
                   {isAiGenerating ? '生成中...' : '🚀 生成'}
                 </button>
-                {aiResponse && (
+                {(displayedResponse || aiResponse) && (
                   <div className="ai-response-container">
                     <div className="ai-response-header">
                       <span>AI 回复</span>
-                      <button className="insert-btn" onClick={insertToEditor}>
-                        ✅ 插入文档
-                      </button>
+                      {aiResponse && (
+                        <button className="insert-btn" onClick={insertToEditor}>
+                          ✅ 插入文档
+                        </button>
+                      )}
                     </div>
                     <div className="ai-response">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {aiResponse}
+                        {displayedResponse || aiResponse}
                       </ReactMarkdown>
                     </div>
                   </div>
@@ -866,6 +999,18 @@ function App() {
             <div className="pane-header">
               <span className="doc-name">{currentDoc?.title || '未命名文档'}</span>
               <div className="pane-actions">
+                {isBeautifying && (
+                  <span className="status-indicator">
+                    <span className="spinner"></span>
+                    美化中...
+                  </span>
+                )}
+                {isCustomGenerating && (
+                  <span className="status-indicator">
+                    <span className="spinner"></span>
+                    局部修改中...
+                  </span>
+                )}
                 {showBeautifyBtn && !showLocalEditPanel && (
                   <>
                     <button
@@ -873,11 +1018,19 @@ function App() {
                       onClick={beautifyText}
                       disabled={isBeautifying}
                     >
-                      {isBeautifying ? '美化中...' : '✨ 一键美化'}
+                      {isBeautifying ? (
+                        <>
+                          <span className="btn-spinner"></span>
+                          美化中...
+                        </>
+                      ) : (
+                        '✨ 一键美化'
+                      )}
                     </button>
                     <button
                       className="custom-edit-btn"
                       onClick={() => setShowLocalEditPanel(true)}
+                      disabled={isBeautifying || isCustomGenerating}
                     >
                       🎨 局部编辑
                     </button>
@@ -923,13 +1076,26 @@ function App() {
                     />
                   </div>
                 </div>
+                {isCustomGenerating && (
+                  <div className="generating-status">
+                    <span className="spinner"></span>
+                    <span>正在生成内容，请稍候...</span>
+                  </div>
+                )}
                 <div className="local-edit-actions">
                   <button
                     className="generate-btn"
                     onClick={generateCustomContent}
                     disabled={isCustomGenerating}
                   >
-                    {isCustomGenerating ? '生成中...' : '🚀 生成'}
+                    {isCustomGenerating ? (
+                      <>
+                        <span className="btn-spinner"></span>
+                        生成中...
+                      </>
+                    ) : (
+                      '🚀 生成'
+                    )}
                   </button>
                   <button
                     className="cancel-edit-btn"
@@ -937,6 +1103,7 @@ function App() {
                       setShowLocalEditPanel(false)
                       setCustomPrompt('')
                     }}
+                    disabled={isCustomGenerating}
                   >
                     取消
                   </button>
@@ -999,6 +1166,8 @@ function App() {
                   <DiffHighlighter 
                     original={originalContent} 
                     modified={modifiedContent} 
+                    originalSelection={originalSelectedText}
+                    modifiedResult={modifiedResultText}
                     type="original"
                   />
                 </div>
@@ -1010,6 +1179,8 @@ function App() {
                   <DiffHighlighter 
                     original={originalContent} 
                     modified={modifiedContent} 
+                    originalSelection={originalSelectedText}
+                    modifiedResult={modifiedResultText}
                     type="modified"
                   />
                 </div>
