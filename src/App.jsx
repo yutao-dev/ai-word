@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Toaster } from 'react-hot-toast'
 import './App.css'
 import Sidebar from './components/Sidebar'
 import AiPanel from './components/AiPanel'
@@ -8,12 +9,15 @@ import EditorPane from './components/EditorPane'
 import ExportMenu from './components/ExportMenu'
 import { useDocuments } from './hooks/useDocuments'
 import { useLLMConfig } from './hooks/useLLMConfig'
+import { useOptimizedHistory } from './hooks/usePerformance'
+import { showSuccess, showWarning, showUndoRedoToast, showExportToast } from './utils/toast'
 
 function App() {
   const {
     documents,
     currentDocId,
     currentDoc,
+    isLoading,
     setCurrentDocId,
     updateCurrentDoc,
     createDocument,
@@ -43,6 +47,59 @@ function App() {
     originalSelectedText: '',
     modifiedResultText: ''
   })
+
+  const {
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    reset: resetHistory
+  } = useOptimizedHistory(currentDoc?.content || '', updateCurrentDoc, { historyDelay: 1000 })
+
+  const prevDocIdRef = useRef(currentDocId)
+
+  useEffect(() => {
+    if (currentDocId !== prevDocIdRef.current) {
+      resetHistory(currentDoc?.content || '')
+      prevDocIdRef.current = currentDocId
+    }
+  }, [currentDocId, currentDoc?.content, resetHistory])
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+      const ctrlKey = isMac ? e.metaKey : e.ctrlKey
+      
+      if (ctrlKey && e.key === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          const redoneContent = redo()
+          if (redoneContent !== null) {
+            updateCurrentDoc(redoneContent)
+            showUndoRedoToast('redo')
+          }
+        } else {
+          const undoneContent = undo()
+          if (undoneContent !== null) {
+            updateCurrentDoc(undoneContent)
+            showUndoRedoToast('undo')
+          }
+        }
+      }
+      
+      if (ctrlKey && e.key === 'y') {
+        e.preventDefault()
+        const redoneContent = redo()
+        if (redoneContent !== null) {
+          updateCurrentDoc(redoneContent)
+          showUndoRedoToast('redo')
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [undo, redo, updateCurrentDoc])
 
   const handleDragEnd = useCallback(() => {
     setIsDragging(false)
@@ -81,32 +138,52 @@ function App() {
   }, [])
 
   const handleConfirmDiff = useCallback(() => {
-    if (confirm('确定要应用这些修改吗？')) {
-      updateCurrentDoc(diffData.modifiedContent)
-      setShowDiffView(false)
-    }
+    updateCurrentDoc(diffData.modifiedContent)
+    setShowDiffView(false)
+    showSuccess('修改已应用')
   }, [diffData.modifiedContent, updateCurrentDoc])
 
   const handleCancelDiff = useCallback(() => {
-    if (confirm('确定要放弃这些修改吗？')) {
-      setShowDiffView(false)
-    }
+    setShowDiffView(false)
+    showWarning('已放弃修改')
   }, [])
 
   const handleInsertAiContent = useCallback((newContent) => {
     updateCurrentDoc(newContent)
     setShowAiPanel(false)
+    showSuccess('AI 内容已插入')
   }, [updateCurrentDoc])
 
   const handleFetchModels = async () => {
-    const result = await fetchModels()
-    if (!result.success) {
-      alert(result.error)
-    }
+    await fetchModels()
+  }
+
+  const handleExportComplete = (format, filename) => {
+    showExportToast(format, filename)
+  }
+
+  if (isLoading) {
+    return (
+      <div className="app-loading">
+        <div className="loading-spinner"></div>
+        <p>加载中...</p>
+      </div>
+    )
   }
 
   return (
     <div className="app">
+      <Toaster 
+        position="top-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            borderRadius: '8px',
+            fontWeight: '500'
+          }
+        }}
+      />
+      
       <div className="header">
         <button 
           className="toggle-sidebar-btn"
@@ -116,11 +193,39 @@ function App() {
         </button>
         <h1>📝 AI Word - 智能文档创作助手</h1>
         <div className="header-actions">
+          <div className="undo-redo-buttons">
+            <button 
+              className="header-btn"
+              onClick={() => {
+                const undoneContent = undo()
+                if (undoneContent !== null) {
+                  updateCurrentDoc(undoneContent)
+                  showUndoRedoToast('undo')
+                }
+              }}
+              disabled={!canUndo}
+              title="撤销 (Ctrl+Z)"
+            >
+              ↩️
+            </button>
+            <button 
+              className="header-btn"
+              onClick={() => {
+                const redoneContent = redo()
+                if (redoneContent !== null) {
+                  updateCurrentDoc(redoneContent)
+                  showUndoRedoToast('redo')
+                }
+              }}
+              disabled={!canRedo}
+              title="重做 (Ctrl+Y)"
+            >
+              ↪️
+            </button>
+          </div>
           <ExportMenu 
             currentDoc={currentDoc}
-            onExportComplete={(format, filename) => {
-              console.log(`Exported as ${format}: ${filename}`)
-            }}
+            onExportComplete={handleExportComplete}
           />
           <button 
             className="header-btn"

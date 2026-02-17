@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { callLLMStream } from '../utils/api'
+import { showWarning } from '../utils/toast'
 
 const MultiLinePlaceholder = ({ text }) => {
   return (
@@ -31,12 +32,12 @@ const AiPanel = ({ llmConfig, currentDoc, onInsert }) => {
 
   const callAI = async () => {
     if (!aiPrompt.trim()) {
-      alert('请输入提示词')
+      showWarning('请输入提示词')
       return
     }
 
     if (!llmConfig.apiKey) {
-      alert('请先在设置中配置 API Key')
+      showWarning('请先在设置中配置 API Key')
       return
     }
 

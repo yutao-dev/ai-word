@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { callLLM, buildPrompt } from '../utils/api'
+import { showWarning, showError } from '../utils/toast'
 
 const MultiLinePlaceholder = ({ text }) => {
   return (
@@ -23,11 +24,11 @@ const LocalEditPanel = ({
   const handleGenerate = async () => {
     if (!selectedText) return
     if (!llmConfig.apiKey) {
-      alert('请先在设置中配置 API Key')
+      showWarning('请先在设置中配置 API Key')
       return
     }
     if (!customPrompt.trim()) {
-      alert('请输入提示词')
+      showWarning('请输入提示词')
       return
     }
 
@@ -41,11 +42,11 @@ const LocalEditPanel = ({
         onGenerate(result.result)
         setCustomPrompt('')
       } else {
-        alert('生成失败，请检查配置')
+        showError('生成失败，请检查配置')
       }
     } catch (error) {
       console.error('生成失败:', error)
-      alert('生成失败，请检查配置')
+      showError('生成失败，请检查配置')
     } finally {
       setIsGenerating(false)
     }

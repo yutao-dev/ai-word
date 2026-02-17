@@ -1,8 +1,16 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useMemo, memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import LocalEditPanel from './LocalEditPanel'
 import { callLLM, buildPrompt } from '../utils/api'
+import { showWarning, showError } from '../utils/toast'
+import { useDebounce } from '../hooks/usePerformance'
+
+const MemoizedPreview = memo(({ content }) => (
+  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+    {content}
+  </ReactMarkdown>
+))
 
 const EditorPane = ({ 
   currentDoc, 
@@ -16,8 +24,27 @@ const EditorPane = ({
   const [selectionRange, setSelectionRange] = useState({ start: 0, end: 0 })
   const [isBeautifying, setIsBeautifying] = useState(false)
   const [showLocalEditPanel, setShowLocalEditPanel] = useState(false)
+  
+  const [localContent, setLocalContent] = useState(currentDoc?.content || '')
+  const debouncedContent = useDebounce(localContent, 300)
 
-  const handleTextSelection = (e) => {
+  useEffect(() => {
+    if (currentDoc?.id) {
+      setLocalContent(currentDoc.content || '')
+    }
+  }, [currentDoc?.id, currentDoc?.content])
+
+  useEffect(() => {
+    if (debouncedContent !== '' && debouncedContent !== currentDoc?.content) {
+      onUpdateContent(debouncedContent)
+    }
+  }, [debouncedContent, currentDoc?.content, onUpdateContent])
+
+  const handleContentChange = useCallback((e) => {
+    setLocalContent(e.target.value)
+  }, [])
+
+  const handleTextSelection = useCallback((e) => {
     const textarea = e.target
     const start = textarea.selectionStart
     const end = textarea.selectionEnd
@@ -34,9 +61,9 @@ const EditorPane = ({
       setShowBeautifyBtn(false)
       setShowLocalEditPanel(false)
     }
-  }
+  }, [])
 
-  const handleMouseUp = () => {
+  const handleMouseUp = useCallback(() => {
     setTimeout(() => {
       const textarea = document.querySelector('.editor')
       if (textarea) {
@@ -48,12 +75,12 @@ const EditorPane = ({
         }
       }
     }, 100)
-  }
+  }, [])
 
-  const beautifyText = async () => {
+  const beautifyText = useCallback(async () => {
     if (!selectedText) return
     if (!llmConfig.apiKey) {
-      alert('请先在设置中配置 API Key')
+      showWarning('请先在设置中配置 API Key')
       return
     }
 
@@ -65,7 +92,7 @@ const EditorPane = ({
       const result = await callLLM(llmConfig, prompt)
       
       if (result.success) {
-        const content = currentDoc?.content || ''
+        const content = localContent || ''
         const before = content.substring(0, selectionRange.start)
         const after = content.substring(selectionRange.end)
         const newContent = before + result.result + after
@@ -77,18 +104,18 @@ const EditorPane = ({
           modifiedResultText: result.result
         })
       } else {
-        alert('美化失败，请检查配置')
+        showError('美化失败，请检查配置')
       }
     } catch (error) {
       console.error('美化失败:', error)
-      alert('美化失败，请检查配置')
+      showError('美化失败，请检查配置')
     } finally {
       setIsBeautifying(false)
     }
-  }
+  }, [selectedText, llmConfig, localContent, selectionRange, onShowDiff])
 
   const handleCustomGenerate = useCallback(async (result) => {
-    const content = currentDoc?.content || ''
+    const content = localContent || ''
     const before = content.substring(0, selectionRange.start)
     const after = content.substring(selectionRange.end)
     const newContent = before + result + after
@@ -101,7 +128,9 @@ const EditorPane = ({
     })
     setShowLocalEditPanel(false)
     setShowBeautifyBtn(false)
-  }, [currentDoc, selectionRange, selectedText, onShowDiff])
+  }, [localContent, selectionRange, selectedText, onShowDiff])
+
+  const previewContent = useMemo(() => localContent, [localContent])
 
   return (
     <div className="panes-container">
@@ -153,8 +182,8 @@ const EditorPane = ({
         )}
         <textarea
           className="editor"
-          value={currentDoc?.content || ''}
-          onChange={(e) => onUpdateContent(e.target.value)}
+          value={localContent}
+          onChange={handleContentChange}
           onSelect={handleTextSelection}
           onMouseUp={handleMouseUp}
           placeholder="在这里输入 Markdown 内容，选择文本后可使用美化或局部编辑功能..."
@@ -169,13 +198,11 @@ const EditorPane = ({
       <div className="preview-pane" style={{ flex: `${100 - editorWidth}%` }}>
         <div className="pane-header">预览</div>
         <div className="preview">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {currentDoc?.content || ''}
-          </ReactMarkdown>
+          <MemoizedPreview content={previewContent} />
         </div>
       </div>
     </div>
   )
 }
 
-export default EditorPane
+export default memo(EditorPane)

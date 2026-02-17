@@ -13,10 +13,12 @@
     "docx": "^9.5.3",
     "file-saver": "^2.0.5",
     "html2canvas": "^1.4.1",
+    "idb": "^8.0.3",
     "jspdf": "^4.1.0",
     "marked": "^17.0.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-hot-toast": "^2.6.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1"
   },

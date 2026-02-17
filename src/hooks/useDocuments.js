@@ -1,51 +1,111 @@
 import { useState, useEffect, useCallback } from 'react'
-import { STORAGE_KEYS, DEFAULT_DOCUMENTS } from '../constants'
+import { 
+  getAllDocuments, 
+  saveDocument, 
+  createDocument, 
+  deleteDocument,
+  migrateFromLocalStorage,
+  getAppState,
+  saveAppState
+} from '../utils/db'
+import { showSuccess, showError, showWarning } from '../utils/toast'
 
 export const useDocuments = () => {
-  const [documents, setDocuments] = useState(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.DOCUMENTS)
-    return saved ? JSON.parse(saved) : DEFAULT_DOCUMENTS
-  })
-
-  const [currentDocId, setCurrentDocId] = useState(documents[0]?.id || null)
+  const [documents, setDocuments] = useState([])
+  const [currentDocId, setCurrentDocId] = useState(null)
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(documents))
-  }, [documents])
+    const initDocuments = async () => {
+      try {
+        await migrateFromLocalStorage()
+        
+        const docs = await getAllDocuments()
+        setDocuments(docs)
+        
+        const savedDocId = await getAppState('currentDocId')
+        const validDocId = savedDocId && docs.find(d => d.id === savedDocId)
+          ? savedDocId
+          : docs[0]?.id
+        
+        if (validDocId) {
+          setCurrentDocId(validDocId)
+        }
+      } catch (error) {
+        console.error('Init documents error:', error)
+        showError('加载文档失败')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    
+    initDocuments()
+  }, [])
+
+  useEffect(() => {
+    if (currentDocId) {
+      saveAppState('currentDocId', currentDocId)
+    }
+  }, [currentDocId])
 
   const currentDoc = documents.find(doc => doc.id === currentDocId)
 
-  const updateCurrentDoc = useCallback((content) => {
-    setDocuments(prev => prev.map(doc => 
-      doc.id === currentDocId ? { ...doc, content, updatedAt: Date.now() } : doc
-    ))
-  }, [currentDocId])
-
-  const createDocument = useCallback((title) => {
-    if (!title.trim()) return null
-    const newDoc = {
-      id: Date.now().toString(),
-      title: title.trim(),
-      content: `# ${title.trim()}\n\n开始编辑你的文档...`,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
+  const updateCurrentDoc = useCallback(async (content) => {
+    if (!currentDocId) return
+    
+    const doc = documents.find(d => d.id === currentDocId)
+    if (!doc) return
+    
+    const result = await saveDocument({ ...doc, content })
+    
+    if (result.success) {
+      setDocuments(prev => prev.map(d => 
+        d.id === currentDocId ? result.doc : d
+      ))
+    } else {
+      showError('保存失败：' + result.error)
     }
-    setDocuments(prev => [newDoc, ...prev])
-    setCurrentDocId(newDoc.id)
-    return newDoc
+  }, [currentDocId, documents])
+
+  const createNewDocument = useCallback(async (title) => {
+    if (!title.trim()) {
+      showWarning('请输入文档标题')
+      return null
+    }
+    
+    const result = await createDocument(title)
+    
+    if (result.success) {
+      setDocuments(prev => [result.doc, ...prev])
+      setCurrentDocId(result.doc.id)
+      showSuccess('文档创建成功')
+      return result.doc
+    } else {
+      showError('创建失败：' + result.error)
+      return null
+    }
   }, [])
 
-  const deleteDocument = useCallback((docId) => {
-    if (documents.length <= 1) {
-      return { success: false, error: '至少需要保留一个文档！' }
+  const deleteDoc = useCallback(async (docId) => {
+    const result = await deleteDocument(docId)
+    
+    if (result.success) {
+      setDocuments(prev => prev.filter(d => d.id !== docId))
+      
+      if (currentDocId === docId) {
+        const remainingDocs = documents.filter(d => d.id !== docId)
+        if (remainingDocs.length > 0) {
+          setCurrentDocId(remainingDocs[0].id)
+        }
+      }
+      
+      showSuccess('文档已删除')
+      return { success: true }
+    } else {
+      showWarning(result.error)
+      return { success: false, error: result.error }
     }
-    const newDocs = documents.filter(doc => doc.id !== docId)
-    setDocuments(newDocs)
-    if (currentDocId === docId) {
-      setCurrentDocId(newDocs[0].id)
-    }
-    return { success: true }
-  }, [documents, currentDocId])
+  }, [currentDocId, documents])
 
   const formatDate = useCallback((timestamp) => {
     return new Date(timestamp).toLocaleDateString('zh-CN', {
@@ -56,14 +116,22 @@ export const useDocuments = () => {
     })
   }, [])
 
+  const selectDocument = useCallback((docId) => {
+    const doc = documents.find(d => d.id === docId)
+    if (doc) {
+      setCurrentDocId(docId)
+    }
+  }, [documents])
+
   return {
     documents,
     currentDocId,
     currentDoc,
-    setCurrentDocId,
+    isLoading,
+    setCurrentDocId: selectDocument,
     updateCurrentDoc,
-    createDocument,
-    deleteDocument,
+    createDocument: createNewDocument,
+    deleteDocument: deleteDoc,
     formatDate
   }
 }
