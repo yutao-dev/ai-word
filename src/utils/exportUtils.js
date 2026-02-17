@@ -77,46 +77,54 @@ ${htmlContent}
   return { success: true, filename }
 }
 
+const PDF_STYLES = `
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    h1 { font-size: 22px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #667eea; color: #333; }
+    h2 { font-size: 18px; margin-top: 16px; margin-bottom: 8px; color: #444; }
+    h3 { font-size: 15px; margin-top: 12px; margin-bottom: 6px; color: #555; }
+    h4 { font-size: 14px; margin-top: 10px; margin-bottom: 4px; color: #666; }
+    p { margin-bottom: 10px; font-size: 12px; }
+    code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; font-family: Courier New, monospace; font-size: 11px; }
+    pre { background: #f5f5f5; padding: 10px; border-radius: 4px; margin: 10px 0; border-left: 3px solid #ddd; }
+    pre code { background: none; padding: 0; }
+    blockquote { border-left: 3px solid #667eea; padding-left: 12px; margin: 10px 0; color: #666; font-style: italic; }
+    ul, ol { margin: 8px 0; padding-left: 20px; }
+    li { margin: 4px 0; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 11px; }
+    th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
+    th { background: #f5f5f5; font-weight: bold; }
+    a { color: #667eea; text-decoration: none; }
+    hr { border: none; border-top: 1px solid #ddd; margin: 12px 0; }
+    img { max-width: 100%; height: auto; }
+  </style>
+`
+
+const createPdfContainer = (content) => {
+  const container = document.createElement('div')
+  container.style.cssText = `
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    width: 595px;
+    padding: 40px;
+    background: white;
+    font-family: Arial, sans-serif;
+  `
+  const htmlContent = marked(content)
+  container.innerHTML = `${PDF_STYLES}${htmlContent}`
+  return container
+}
+
 export const exportAsPdf = async (content, title) => {
   const filename = `${sanitizeFilename(title)}.pdf`
   
   try {
-    const container = document.createElement('div')
-    container.style.cssText = `
-      position: absolute;
-      left: -9999px;
-      top: 0;
-      width: 800px;
-      padding: 40px;
-      background: white;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      line-height: 1.8;
-      color: #333;
-    `
-    
-    const htmlContent = marked(content)
-    container.innerHTML = `
-      <style>
-        h1 { margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #667eea; color: #333; font-size: 24px; }
-        h2 { margin-top: 1.5rem; margin-bottom: 0.8rem; color: #444; font-size: 20px; }
-        h3 { margin-top: 1.2rem; margin-bottom: 0.6rem; color: #555; font-size: 16px; }
-        p { margin-bottom: 1rem; }
-        code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 14px; }
-        pre { background: #2d2d2d; color: #f8f8f2; padding: 1rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; }
-        pre code { background: none; padding: 0; }
-        blockquote { border-left: 4px solid #667eea; padding-left: 1rem; margin: 1rem 0; color: #666; font-style: italic; }
-        ul, ol { margin: 1rem 0; padding-left: 2rem; }
-        li { margin: 0.5rem 0; }
-        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
-        th, td { border: 1px solid #e0e0e0; padding: 8px 12px; text-align: left; }
-        th { background: #f5f5f5; font-weight: 600; }
-        a { color: #667eea; text-decoration: none; }
-        hr { border: none; border-top: 2px solid #e0e0e0; margin: 1.5rem 0; }
-      </style>
-      ${htmlContent}
-    `
-    
+    const container = createPdfContainer(content)
     document.body.appendChild(container)
+    
+    await new Promise(resolve => setTimeout(resolve, 100))
     
     const canvas = await html2canvas(container, {
       scale: 2,
@@ -127,22 +135,55 @@ export const exportAsPdf = async (content, title) => {
     
     document.body.removeChild(container)
     
-    const imgWidth = 210
+    const pageWidth = 210
     const pageHeight = 297
+    const margin = 10
+    const contentWidth = pageWidth - margin * 2
+    
+    const imgWidth = contentWidth
     const imgHeight = (canvas.height * imgWidth) / canvas.width
-    let heightLeft = imgHeight
+    const pageContentHeight = pageHeight - margin * 2
     
-    const pdf = new jsPDF('p', 'mm', 'a4')
-    let position = 0
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+      compress: true
+    })
     
-    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, position, imgWidth, imgHeight)
-    heightLeft -= pageHeight
+    const totalHeight = imgHeight
+    const pageCount = Math.ceil(totalHeight / pageContentHeight)
     
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight
-      pdf.addPage()
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, position, imgWidth, imgHeight)
-      heightLeft -= pageHeight
+    for (let page = 0; page < pageCount; page++) {
+      if (page > 0) {
+        pdf.addPage()
+      }
+      
+      const sourceY = (page * pageContentHeight / imgWidth) * canvas.width
+      const sourceHeight = Math.min(
+        (pageContentHeight / imgWidth) * canvas.width,
+        canvas.height - sourceY
+      )
+      
+      if (sourceHeight <= 0) break
+      
+      const pageCanvas = document.createElement('canvas')
+      pageCanvas.width = canvas.width
+      pageCanvas.height = sourceHeight
+      
+      const ctx = pageCanvas.getContext('2d')
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height)
+      ctx.drawImage(
+        canvas,
+        0, sourceY, canvas.width, sourceHeight,
+        0, 0, canvas.width, sourceHeight
+      )
+      
+      const imgData = pageCanvas.toDataURL('image/jpeg', 0.85)
+      const pageImgHeight = (sourceHeight * imgWidth) / canvas.width
+      
+      pdf.addImage(imgData, 'JPEG', margin, margin, imgWidth, pageImgHeight)
     }
     
     pdf.save(filename)
