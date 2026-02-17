@@ -547,13 +547,13 @@ function App() {
       }
 
       stopRendering()
+      setDisplayedResponse('')
       setAiResponse(fullText || '无响应')
     } catch (error) {
       console.error('AI 调用失败:', error)
-      setStreamBuffer(`调用失败: ${error.message}`)
-      setTimeout(() => {
-        setAiResponse(`调用失败: ${error.message}`)
-      }, 500)
+      setStreamBuffer('')
+      setDisplayedResponse('')
+      setAiResponse(`调用失败: ${error.message}`)
     } finally {
       setIsAiGenerating(false)
       if (renderInterval) {
@@ -569,6 +569,8 @@ function App() {
     setShowAiPanel(false)
     setAiPrompt('')
     setAiResponse('')
+    setDisplayedResponse('')
+    setStreamBuffer('')
   }
 
   const handleTextSelection = (e) => {
@@ -946,7 +948,13 @@ function App() {
                 <h3>🤖 AI 助手</h3>
                 <button 
                   className="close-btn"
-                  onClick={() => setShowAiPanel(false)}
+                  onClick={() => {
+                    setShowAiPanel(false)
+                    setAiPrompt('')
+                    setAiResponse('')
+                    setDisplayedResponse('')
+                    setStreamBuffer('')
+                  }}
                 >
                   ✕
                 </button>
@@ -974,7 +982,7 @@ function App() {
                 >
                   {isAiGenerating ? '生成中...' : '🚀 生成'}
                 </button>
-                {(displayedResponse || aiResponse) && (
+                {((isAiGenerating && displayedResponse) || aiResponse) && (
                   <div className="ai-response-container">
                     <div className="ai-response-header">
                       <span>AI 回复</span>
@@ -986,7 +994,7 @@ function App() {
                     </div>
                     <div className="ai-response">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {displayedResponse || aiResponse}
+                        {isAiGenerating ? displayedResponse : aiResponse}
                       </ReactMarkdown>
                     </div>
                   </div>
