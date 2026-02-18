@@ -1389,3 +1389,31 @@
 .undo-redo-buttons .header-btn:disabled:hover {
   background: rgba(255, 255, 255, 0.2);
 }
+
+.workflow-resize-handle {
+  width: 8px;
+  background: #f0f0f0;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+  flex-shrink: 0;
+}
+
+.workflow-resize-handle:hover {
+  background: #667eea;
+}
+
+.workflow-resize-handle::after {
+  content: '';
+  width: 3px;
+  height: 30px;
+  background: #ccc;
+  border-radius: 2px;
+  transition: background-color 0.2s;
+}
+
+.workflow-resize-handle:hover::after {
+  background: white;
+}

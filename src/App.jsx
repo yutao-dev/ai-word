@@ -3,14 +3,15 @@ import { Toaster } from 'react-hot-toast'
 import './App.css'
 import Sidebar from './components/Sidebar'
 import AiPanel from './components/AiPanel'
+import AIWorkflowPanel from './components/AIWorkflowPanel'
 import SettingsModal from './components/SettingsModal'
 import DiffModal from './components/DiffModal'
 import EditorPane from './components/EditorPane'
 import ExportMenu from './components/ExportMenu'
 import { useDocuments } from './hooks/useDocuments'
 import { useLLMConfig } from './hooks/useLLMConfig'
-import { useOptimizedHistory } from './hooks/usePerformance'
-import { showSuccess, showWarning, showUndoRedoToast, showExportToast } from './utils/toast'
+import { getAllDocuments } from './utils/db'
+import { showSuccess, showWarning, showExportToast } from './utils/toast'
 
 function App() {
   const {
@@ -22,7 +23,8 @@ function App() {
     updateCurrentDoc,
     createDocument,
     deleteDocument,
-    formatDate
+    formatDate,
+    setDocuments
   } = useDocuments()
 
   const {
@@ -37,8 +39,11 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
   const [showAiPanel, setShowAiPanel] = useState(false)
+  const [showAIWorkflow, setShowAIWorkflow] = useState(false)
   const [editorWidth, setEditorWidth] = useState(50)
+  const [aiWorkflowWidth, setAiWorkflowWidth] = useState(400)
   const [isDragging, setIsDragging] = useState(false)
+  const [isDraggingWorkflow, setIsDraggingWorkflow] = useState(false)
   
   const [showDiffView, setShowDiffView] = useState(false)
   const [diffData, setDiffData] = useState({
@@ -48,61 +53,23 @@ function App() {
     modifiedResultText: ''
   })
 
-  const {
-    undo,
-    redo,
-    canUndo,
-    canRedo,
-    reset: resetHistory
-  } = useOptimizedHistory(currentDoc?.content || '', updateCurrentDoc, { historyDelay: 1000 })
+  const refreshDocuments = useCallback(async () => {
+    const docs = await getAllDocuments()
+    setDocuments(docs)
+  }, [setDocuments])
 
-  const prevDocIdRef = useRef(currentDocId)
+  const editorRef = useRef(null)
 
-  useEffect(() => {
-    if (currentDocId !== prevDocIdRef.current) {
-      resetHistory(currentDoc?.content || '')
-      prevDocIdRef.current = currentDocId
+  const getCurrentEditorContent = useCallback(() => {
+    if (editorRef.current) {
+      return editorRef.current.getContent()
     }
-  }, [currentDocId, currentDoc?.content, resetHistory])
-
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
-      const ctrlKey = isMac ? e.metaKey : e.ctrlKey
-      
-      if (ctrlKey && e.key === 'z') {
-        e.preventDefault()
-        if (e.shiftKey) {
-          const redoneContent = redo()
-          if (redoneContent !== null) {
-            updateCurrentDoc(redoneContent)
-            showUndoRedoToast('redo')
-          }
-        } else {
-          const undoneContent = undo()
-          if (undoneContent !== null) {
-            updateCurrentDoc(undoneContent)
-            showUndoRedoToast('undo')
-          }
-        }
-      }
-      
-      if (ctrlKey && e.key === 'y') {
-        e.preventDefault()
-        const redoneContent = redo()
-        if (redoneContent !== null) {
-          updateCurrentDoc(redoneContent)
-          showUndoRedoToast('redo')
-        }
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [undo, redo, updateCurrentDoc])
+    return currentDoc?.content || ''
+  }, [currentDoc?.content])
 
   const handleDragEnd = useCallback(() => {
     setIsDragging(false)
+    setIsDraggingWorkflow(false)
   }, [])
 
   const handleDrag = useCallback((e) => {
@@ -113,6 +80,16 @@ function App() {
     const clampedWidth = Math.max(20, Math.min(80, newWidth))
     setEditorWidth(clampedWidth)
   }, [isDragging])
+
+  const handleWorkflowDrag = useCallback((e) => {
+    if (!isDraggingWorkflow) return
+    const container = document.querySelector('.editor-container')
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    const newWidth = rect.right - e.clientX
+    const clampedWidth = Math.max(280, Math.min(600, newWidth))
+    setAiWorkflowWidth(clampedWidth)
+  }, [isDraggingWorkflow])
 
   useEffect(() => {
     if (isDragging) {
@@ -132,12 +109,33 @@ function App() {
     }
   }, [isDragging, handleDrag, handleDragEnd])
 
+  useEffect(() => {
+    if (isDraggingWorkflow) {
+      document.addEventListener('mousemove', handleWorkflowDrag)
+      document.addEventListener('mouseup', handleDragEnd)
+      document.body.style.userSelect = 'none'
+      document.body.style.cursor = 'col-resize'
+    } else {
+      document.removeEventListener('mousemove', handleWorkflowDrag)
+      document.removeEventListener('mouseup', handleDragEnd)
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+    }
+    return () => {
+      document.removeEventListener('mousemove', handleWorkflowDrag)
+      document.removeEventListener('mouseup', handleDragEnd)
+    }
+  }, [isDraggingWorkflow, handleWorkflowDrag, handleDragEnd])
+
   const handleShowDiff = useCallback((data) => {
     setDiffData(data)
     setShowDiffView(true)
   }, [])
 
   const handleConfirmDiff = useCallback(() => {
+    if (editorRef.current) {
+      editorRef.current.setContent(diffData.modifiedContent)
+    }
     updateCurrentDoc(diffData.modifiedContent)
     setShowDiffView(false)
     showSuccess('修改已应用')
@@ -149,6 +147,9 @@ function App() {
   }, [])
 
   const handleInsertAiContent = useCallback((newContent) => {
+    if (editorRef.current) {
+      editorRef.current.setContent(newContent)
+    }
     updateCurrentDoc(newContent)
     setShowAiPanel(false)
     showSuccess('AI 内容已插入')
@@ -193,40 +194,21 @@ function App() {
         </button>
         <h1>📝 AI Word - 智能文档创作助手</h1>
         <div className="header-actions">
-          <div className="undo-redo-buttons">
-            <button 
-              className="header-btn"
-              onClick={() => {
-                const undoneContent = undo()
-                if (undoneContent !== null) {
-                  updateCurrentDoc(undoneContent)
-                  showUndoRedoToast('undo')
-                }
-              }}
-              disabled={!canUndo}
-              title="撤销 (Ctrl+Z)"
-            >
-              ↩️
-            </button>
-            <button 
-              className="header-btn"
-              onClick={() => {
-                const redoneContent = redo()
-                if (redoneContent !== null) {
-                  updateCurrentDoc(redoneContent)
-                  showUndoRedoToast('redo')
-                }
-              }}
-              disabled={!canRedo}
-              title="重做 (Ctrl+Y)"
-            >
-              ↪️
-            </button>
-          </div>
           <ExportMenu 
             currentDoc={currentDoc}
             onExportComplete={handleExportComplete}
           />
+          <button 
+            className="header-btn"
+            onClick={() => setShowAIWorkflow(!showAIWorkflow)}
+            title="AI 工作流"
+            style={{ 
+              backgroundColor: showAIWorkflow ? '#dbeafe' : 'transparent',
+              color: showAIWorkflow ? '#1e40af' : 'inherit'
+            }}
+          >
+            ⚡
+          </button>
           <button 
             className="header-btn"
             onClick={() => setShowAiPanel(!showAiPanel)}
@@ -260,18 +242,37 @@ function App() {
           {showAiPanel && (
             <AiPanel 
               llmConfig={llmConfig}
-              currentDoc={currentDoc}
+              getCurrentContent={getCurrentEditorContent}
               onInsert={handleInsertAiContent}
             />
           )}
           
           <EditorPane 
+            ref={editorRef}
             currentDoc={currentDoc}
             editorWidth={editorWidth}
             llmConfig={llmConfig}
             onUpdateContent={updateCurrentDoc}
             onShowDiff={handleShowDiff}
           />
+          
+          {showAIWorkflow && (
+            <>
+              <div 
+                className="workflow-resize-handle"
+                onMouseDown={() => setIsDraggingWorkflow(true)}
+              />
+              <AIWorkflowPanel 
+                docId={currentDocId}
+                currentDocContent={currentDoc?.content}
+                width={aiWorkflowWidth}
+                onUpdateDocuments={refreshDocuments}
+                onOperation={async () => {
+                  await refreshDocuments()
+                }}
+              />
+            </>
+          )}
         </div>
       </div>
 

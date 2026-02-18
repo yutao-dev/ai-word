@@ -128,6 +128,7 @@ export const useDocuments = () => {
     currentDocId,
     currentDoc,
     isLoading,
+    setDocuments,
     setCurrentDocId: selectDocument,
     updateCurrentDoc,
     createDocument: createNewDocument,

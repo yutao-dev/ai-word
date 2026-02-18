@@ -234,3 +234,11 @@ export const buildPrompt = (type, content, customInstruction = '') => {
       return content
   }
 }
+
+export const fetchLLMResponse = async (config, prompt) => {
+  const result = await callLLM(config, prompt)
+  if (result.success) {
+    return { success: true, content: result.result }
+  }
+  return result
+}

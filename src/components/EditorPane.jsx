@@ -1,10 +1,10 @@
-import { useState, useCallback, useEffect, useMemo, memo } from 'react'
+import { useState, useCallback, useEffect, useMemo, memo, useRef, useImperativeHandle, forwardRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import LocalEditPanel from './LocalEditPanel'
 import { callLLM, buildPrompt } from '../utils/api'
 import { showWarning, showError } from '../utils/toast'
-import { useDebounce } from '../hooks/usePerformance'
+import { useOptimizedHistory } from '../hooks/usePerformance'
 
 const MemoizedPreview = memo(({ content }) => (
   <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -12,37 +12,77 @@ const MemoizedPreview = memo(({ content }) => (
   </ReactMarkdown>
 ))
 
-const EditorPane = ({ 
+const EditorPane = forwardRef(({ 
   currentDoc, 
   editorWidth,
   llmConfig,
   onUpdateContent,
   onShowDiff
-}) => {
+}, ref) => {
   const [showBeautifyBtn, setShowBeautifyBtn] = useState(false)
   const [selectedText, setSelectedText] = useState('')
   const [selectionRange, setSelectionRange] = useState({ start: 0, end: 0 })
   const [isBeautifying, setIsBeautifying] = useState(false)
   const [showLocalEditPanel, setShowLocalEditPanel] = useState(false)
-  
-  const [localContent, setLocalContent] = useState(currentDoc?.content || '')
-  const debouncedContent = useDebounce(localContent, 300)
+
+  const {
+    content: localContent,
+    set: setLocalContent,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    reset: resetHistory
+  } = useOptimizedHistory(currentDoc?.content || '', onUpdateContent, { historyDelay: 800 })
+
+  const prevDocIdRef = useRef(currentDoc?.id)
+  const prevContentRef = useRef(currentDoc?.content)
 
   useEffect(() => {
-    if (currentDoc?.id) {
-      setLocalContent(currentDoc.content || '')
+    if (currentDoc?.id !== prevDocIdRef.current) {
+      resetHistory(currentDoc?.content || '')
+      prevDocIdRef.current = currentDoc?.id
+      prevContentRef.current = currentDoc?.content
+    } else if (currentDoc?.content !== prevContentRef.current) {
+      setLocalContent(currentDoc?.content || '')
+      prevContentRef.current = currentDoc?.content
     }
-  }, [currentDoc?.id, currentDoc?.content])
+  }, [currentDoc?.id, currentDoc?.content, resetHistory, setLocalContent])
+
+  useImperativeHandle(ref, () => ({
+    setContent: (newContent) => {
+      setLocalContent(newContent)
+    },
+    getContent: () => localContent
+  }), [setLocalContent, localContent])
 
   useEffect(() => {
-    if (debouncedContent !== '' && debouncedContent !== currentDoc?.content) {
-      onUpdateContent(debouncedContent)
+    const handleKeyDown = (e) => {
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+      const ctrlKey = isMac ? e.metaKey : e.ctrlKey
+      
+      if (ctrlKey && e.key === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          redo()
+        } else {
+          undo()
+        }
+      }
+      
+      if (ctrlKey && e.key === 'y') {
+        e.preventDefault()
+        redo()
+      }
     }
-  }, [debouncedContent, currentDoc?.content, onUpdateContent])
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [undo, redo])
 
   const handleContentChange = useCallback((e) => {
     setLocalContent(e.target.value)
-  }, [])
+  }, [setLocalContent])
 
   const handleTextSelection = useCallback((e) => {
     const textarea = e.target
@@ -169,7 +209,11 @@ const EditorPane = ({
                 </button>
               </>
             )}
-            {!showBeautifyBtn && <span className="pane-label">编辑器</span>}
+            {!showBeautifyBtn && (
+              <span className="pane-label">
+                编辑器 {canUndo ? '↩️' : ''} {canRedo ? '↪️' : ''}
+              </span>
+            )}
           </div>
         </div>
         {showLocalEditPanel && (
@@ -203,6 +247,6 @@ const EditorPane = ({
       </div>
     </div>
   )
-}
+})
 
 export default memo(EditorPane)

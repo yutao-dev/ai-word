@@ -201,3 +201,142 @@ export const clearAllData = async () => {
     return { success: false, error: error.message }
   }
 }
+
+const splitContent = (content) => {
+  if (!content || content === '') {
+    return []
+  }
+  return content.split(/\r?\n/)
+}
+
+const joinContent = (lines) => {
+  return lines.join('\n')
+}
+
+export const deleteByRange = async (docId, start, end) => {
+  try {
+    const startNum = parseInt(start, 10)
+    const endNum = parseInt(end, 10)
+
+    if (isNaN(startNum) || isNaN(endNum)) {
+      return { success: false, error: '行号必须是数字' }
+    }
+
+    if (startNum < 1 || endNum < startNum) {
+      return { success: false, error: '无效的行号范围' }
+    }
+
+    const db = await getDB()
+    const doc = await db.get(STORES.DOCUMENTS, docId)
+    if (!doc) {
+      return { success: false, error: '文档不存在' }
+    }
+
+    const lines = splitContent(doc.content)
+    if (startNum > lines.length || endNum > lines.length) {
+      return { success: false, error: '行号超出文档范围' }
+    }
+
+    const originalContent = doc.content
+    const beforeLines = lines.slice(0, startNum - 1)
+    const afterLines = lines.slice(endNum)
+    const newContent = joinContent([...beforeLines, ...afterLines])
+
+    const updatedDoc = { ...doc, content: newContent, updatedAt: Date.now() }
+    await db.put(STORES.DOCUMENTS, updatedDoc)
+
+    return { 
+      success: true, 
+      doc: updatedDoc, 
+      originalContent, 
+      newContent 
+    }
+  } catch (error) {
+    console.error('Delete by range error:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export const deleteAndSwap = async (docId, deleteStart, deleteEnd, swapMarkdownStr) => {
+  try {
+    const startNum = parseInt(deleteStart, 10)
+    const endNum = parseInt(deleteEnd, 10)
+
+    if (isNaN(startNum) || isNaN(endNum)) {
+      return { success: false, error: '行号必须是数字' }
+    }
+
+    if (startNum < 1 || endNum < startNum) {
+      return { success: false, error: '无效的行号范围' }
+    }
+
+    const db = await getDB()
+    const doc = await db.get(STORES.DOCUMENTS, docId)
+    if (!doc) {
+      return { success: false, error: '文档不存在' }
+    }
+
+    const lines = splitContent(doc.content)
+    if (startNum > lines.length || endNum > lines.length) {
+      return { success: false, error: '行号超出文档范围' }
+    }
+
+    const originalContent = doc.content
+    const beforeLines = lines.slice(0, startNum - 1)
+    const afterLines = lines.slice(endNum)
+    const swapLines = splitContent(swapMarkdownStr || '')
+    const newContent = joinContent([...beforeLines, ...swapLines, ...afterLines])
+
+    const updatedDoc = { ...doc, content: newContent, updatedAt: Date.now() }
+    await db.put(STORES.DOCUMENTS, updatedDoc)
+
+    return { 
+      success: true, 
+      doc: updatedDoc, 
+      originalContent, 
+      newContent 
+    }
+  } catch (error) {
+    console.error('Delete and swap error:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export const insertEnd = async (docId, markdownStr) => {
+  try {
+    const db = await getDB()
+    const doc = await db.get(STORES.DOCUMENTS, docId)
+    if (!doc) {
+      return { success: false, error: '文档不存在' }
+    }
+
+    const originalContent = doc.content
+    const contentToAdd = markdownStr || ''
+    
+    let newContent
+    if (!originalContent || originalContent === '') {
+      newContent = contentToAdd
+    } else if (originalContent.endsWith('\n')) {
+      newContent = originalContent + contentToAdd
+    } else {
+      newContent = originalContent + '\n' + contentToAdd
+    }
+
+    const updatedDoc = { ...doc, content: newContent, updatedAt: Date.now() }
+    await db.put(STORES.DOCUMENTS, updatedDoc)
+
+    return { 
+      success: true, 
+      doc: updatedDoc, 
+      originalContent, 
+      newContent 
+    }
+  } catch (error) {
+    console.error('Insert end error:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+export const getDocumentById = async (id) => {
+  return getDocument(id)
+}

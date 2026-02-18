@@ -14,7 +14,7 @@ const MultiLinePlaceholder = ({ text }) => {
   )
 }
 
-const AiPanel = ({ llmConfig, currentDoc, onInsert }) => {
+const AiPanel = ({ llmConfig, getCurrentContent, onInsert }) => {
   const [aiPrompt, setAiPrompt] = useState('')
   const [isAiGenerating, setIsAiGenerating] = useState(false)
   const [aiResponse, setAiResponse] = useState('')
@@ -76,7 +76,8 @@ const AiPanel = ({ llmConfig, currentDoc, onInsert }) => {
 
   const handleInsert = () => {
     if (!aiResponse) return
-    const newContent = currentDoc?.content ? `${currentDoc.content}\n\n${aiResponse}` : aiResponse
+    const currentContent = getCurrentContent ? getCurrentContent() : ''
+    const newContent = currentContent ? `${currentContent}\n\n${aiResponse}` : aiResponse
     onInsert(newContent)
     setAiPrompt('')
     setAiResponse('')
