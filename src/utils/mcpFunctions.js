@@ -4,7 +4,8 @@ import {
   deleteByRange,
   deleteAndSwap,
   insertEnd,
-  saveDocument
+  saveDocument,
+  updateDocumentContent
 } from './db'
 
 const transactionStack = []
@@ -171,6 +172,34 @@ export const MCP_FUNCTIONS = {
         return result
       } catch (error) {
         console.error('insertEnd error:', error)
+        return { success: false, error: error.message }
+      }
+    }
+  },
+
+  updateDocumentContent: {
+    name: 'updateDocumentContent',
+    description: '直接更新指定文档的完整内容，用于写入总结、改写等操作',
+    parameters: [
+      { name: 'docId', type: 'string', description: '文档ID' },
+      { name: 'newContent', type: 'string', description: '新的MarkDown完整内容' }
+    ],
+    execute: async (docId, newContent) => {
+      try {
+        if (!docId || typeof docId !== 'string') {
+          return { success: false, error: '文档ID不能为空且必须是字符串' }
+        }
+        const result = await updateDocumentContent(docId, newContent)
+        if (result.success) {
+          recordOperation({
+            type: 'update',
+            doc: result.doc,
+            originalContent: result.originalContent
+          })
+        }
+        return result
+      } catch (error) {
+        console.error('updateDocumentContent error:', error)
         return { success: false, error: error.message }
       }
     }

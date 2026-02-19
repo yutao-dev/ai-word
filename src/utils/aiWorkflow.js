@@ -3,7 +3,8 @@ import {
   parseAndExecute, 
   startTransaction, 
   commitTransaction, 
-  rollbackTransaction 
+  rollbackTransaction,
+  MCP_FUNCTIONS
 } from './mcpFunctions'
 
 const WORKFLOW_STATES = {
@@ -56,15 +57,19 @@ export class AIWorkflow {
     this.currentDocContent = null
     this.originalDocContent = null
     this.aiSummary = null
+    this.allDocumentsMeta = null
+    this.readDocuments = new Map()
     this.maxIterations = options.maxIterations || 10
     this.maxValidations = options.maxValidations || 3
     this.maxRetries = options.maxRetries || 3
     this.progressScore = 0
+    this.requiredProgress = 5
     this.lastOperationType = null
     this.consecutiveReads = 0
     this.validationCount = 0
     this.retryCount = 0
     this.lastFailedOperation = null
+    this.isSummaryTask = false
     this.onStateChange = options.onStateChange || (() => {})
     this.onLog = options.onLog || (() => {})
     this.onOperation = options.onOperation || (() => {})
@@ -97,12 +102,16 @@ export class AIWorkflow {
     this.decisions = []
     this.currentDocContent = null
     this.originalDocContent = originalContent || null
+    this.allDocumentsMeta = null
+    this.readDocuments = new Map()
     this.progressScore = 0
+    this.requiredProgress = 5
     this.lastOperationType = null
     this.consecutiveReads = 0
     this.validationCount = 0
     this.retryCount = 0
     this.lastFailedOperation = null
+    this.isSummaryTask = userRequest.includes('总结') || userRequest.includes('summary')
     this.currentTask = {
       userRequest,
       docId,
@@ -229,6 +238,30 @@ export class AIWorkflow {
           } else if (executionResult.data.doc && executionResult.data.doc.content !== undefined) {
             this.currentDocContent = executionResult.data.doc.content
             this.logger.info('Updated currentDocContent from data.doc', { contentLength: this.currentDocContent.length })
+          } else if (executionResult.data.id && executionResult.data.content !== undefined) {
+            this.readDocuments.set(executionResult.data.id, executionResult.data)
+            this.logger.info('Saved document to readDocuments', { 
+              docId: executionResult.data.id, 
+              title: executionResult.data.title 
+            })
+          } else if (Array.isArray(executionResult.data)) {
+            this.allDocumentsMeta = executionResult.data
+            this.logger.info('Saved allDocumentsMeta', { count: executionResult.data.length })
+            
+            if (this.isSummaryTask && executionResult.data.length > 0) {
+              const docCount = executionResult.data.length
+              const estimatedReads = docCount
+              const estimatedWrites = 1
+              const estimatedOperations = 1 + estimatedReads + estimatedWrites
+              
+              this.requiredProgress = Math.max(5, estimatedOperations * 0.5)
+              this.logger.info('Dynamic progress threshold calculated for summary task', {
+                docCount,
+                estimatedReads,
+                estimatedWrites,
+                requiredProgress: this.requiredProgress
+              })
+            }
           }
         }
         this.retryCount = 0
@@ -239,11 +272,16 @@ export class AIWorkflow {
                              executionResult.error.includes('line out of range') ||
                              executionResult.error.includes('invalid line'))
         
-        if (isLineError) {
+        const isParamError = executionResult.error && 
+                           (executionResult.error.includes('参数') || 
+                            executionResult.error.includes('参数不足'))
+        
+        if (isLineError || isParamError) {
           this.retryCount++
           this.lastFailedOperation = analysisResult.operation
           
-          this.logger.warn('Line error detected, checking retry count', { 
+          const errorType = isLineError ? '行号错误' : '参数错误'
+          this.logger.warn(`${errorType} detected, checking retry count`, { 
             retryCount: this.retryCount, 
             maxRetries: this.maxRetries,
             error: executionResult.error
@@ -253,7 +291,7 @@ export class AIWorkflow {
             const retryDecision = {
               iteration: this.currentTask.iterations,
               type: 'retry',
-              reason: `行号错误，重试 (${this.retryCount}/${this.maxRetries})`,
+              reason: `${errorType}，重试 (${this.retryCount}/${this.maxRetries})`,
               error: executionResult.error,
               retryCount: this.retryCount
             }
@@ -268,7 +306,7 @@ export class AIWorkflow {
             const failDecision = {
               iteration: this.currentTask.iterations,
               type: 'operation_failed',
-              reason: `行号错误，已重试${this.maxRetries}次，回退所有操作`,
+              reason: `${errorType}，已重试${this.maxRetries}次，回退所有操作`,
               error: executionResult.error,
               retryCount: this.retryCount
             }
@@ -585,38 +623,69 @@ ${contentDiff}
   }
 
   updateProgressMetrics(operation, executionResult) {
+    if (executionResult.skipped) {
+      this.logger.info('Skipped operation, not updating progress', executionResult.message)
+      return
+    }
+    
     const operationType = operation?.option
     
     if (operationType === 'getDocumentById' || operationType === 'getAllDocument') {
       this.consecutiveReads++
-      this.progressScore += 0.5
-    } else if (operationType === 'insertEnd' || operationType === 'deleteAndSwap' || operationType === 'deleteByRange') {
+      
+      if (this.isSummaryTask) {
+        if (operationType === 'getAllDocument') {
+          this.progressScore += 1
+        } else {
+          this.progressScore += 0.7
+        }
+      } else {
+        this.progressScore += 0.5
+      }
+    } else if (operationType === 'insertEnd' || operationType === 'deleteAndSwap' || operationType === 'deleteByRange' || operationType === 'updateDocumentContent') {
       this.consecutiveReads = 0
-      this.progressScore += 2
+      
+      if (this.isSummaryTask && operationType === 'updateDocumentContent') {
+        this.progressScore += 3
+      } else {
+        this.progressScore += 2
+      }
+      
       if (executionResult.success) {
         this.progressScore += 1
       }
     }
     
-    if (this.lastOperationType === operationType && operationType === 'getDocumentById') {
+    if (!this.isSummaryTask && this.lastOperationType === operationType && operationType === 'getDocumentById') {
       this.progressScore -= 1
     }
     
     this.lastOperationType = operationType
     this.logger.info('Progress metrics updated', {
       progressScore: this.progressScore,
+      requiredProgress: this.requiredProgress,
       consecutiveReads: this.consecutiveReads,
-      lastOperationType: this.lastOperationType
+      lastOperationType: this.lastOperationType,
+      isSummaryTask: this.isSummaryTask
     })
   }
 
   shouldTerminateEarly() {
-    if (this.progressScore >= 5) {
+    if (this.progressScore >= this.requiredProgress) {
+      this.logger.info('Progress threshold reached', { 
+        progressScore: this.progressScore, 
+        requiredProgress: this.requiredProgress 
+      })
       return true
     }
     
-    if (this.consecutiveReads >= 2 && this.currentDocContent) {
-      this.logger.warn('Detected redundant read operations, forcing termination')
+    if (!this.isSummaryTask && this.consecutiveReads >= 2 && this.currentDocContent) {
+      this.logger.warn('Detected redundant read operations for non-summary task, forcing termination')
+      return true
+    }
+    
+    if (this.isSummaryTask && this.consecutiveReads >= 5) {
+      this.logger.warn('Too many consecutive reads for summary task, forcing termination')
       return true
     }
     
@@ -650,7 +719,30 @@ ${contentDiff}
       ? `\n当前文档内容:\n\`\`\`\n${this.currentDocContent}\n\`\`\`\n`
       : '\n当前文档内容: 尚未获取，请先调用 getDocumentById 获取文档内容\n'
     
+    let docsMetaSection = ''
+    if (this.allDocumentsMeta && this.allDocumentsMeta.length > 0) {
+      docsMetaSection = '\n=== 所有文档列表 ===\n'
+      this.allDocumentsMeta.forEach((doc, index) => {
+        const isRead = this.readDocuments.has(doc.id)
+        docsMetaSection += `${index + 1}. ${doc.title} (ID: ${doc.id})${isRead ? ' [已读取]' : ''}\n`
+      })
+      docsMetaSection += '====================\n'
+    }
+    
+    let readDocsSection = ''
+    if (this.readDocuments.size > 0) {
+      readDocsSection = '\n=== 已读取的文档内容 ===\n'
+      readDocsSection += `（已读取 ${this.readDocuments.size} 个文档，请勿重复读取）\n`
+      this.readDocuments.forEach((doc, docId) => {
+        readDocsSection += `\n--- 文档: ${doc.title} (ID: ${docId}) ---\n`
+        readDocsSection += `${doc.content}\n`
+      })
+      readDocsSection += '\n========================\n'
+    }
+    
     const iterationInfo = `\n当前迭代次数: ${this.currentTask.iterations}/${this.maxIterations}\n`
+    
+    const isSummaryTask = userRequest.includes('总结') || userRequest.includes('summary')
     
     return `
 你是一个高效的文档操作助手。请根据用户需求分析需要执行的操作。
@@ -660,19 +752,31 @@ ${docs}
 
 用户需求: ${userRequest}
 当前文档ID: ${docId}
-${docContentSection}${iterationInfo}
+${docContentSection}${docsMetaSection}${readDocsSection}${iterationInfo}
 重要规则:
-1. 如果已经获取了文档内容，请直接执行编辑操作，不要重复获取
-2. 如果任务只需要一个操作就能完成，执行后立即设置 isComplete: true
-3. 编辑操作后，如果用户需求已满足，立即标记任务完成
-4. 不要进行不必要的重复操作
-5. 行号从1开始计数
+1. 如果已经获取了文档内容（上方已列出），请直接执行编辑操作，不要重复获取
+2. 【非常重要】不要重复读取同一个文档！已读取的文档会在上方列出，并有 [已读取] 标记
+3. 如果任务只需要一个操作就能完成，执行后立即设置 isComplete: true
+4. 编辑操作后，如果用户需求已满足，立即标记任务完成
+5. 不要进行不必要的重复操作
+6. 行号从1开始计数
+${isSummaryTask ? `
+7. 【总结任务特殊规则】:
+   - 第一步: 如果还没有文档列表，使用 getAllDocument 获取所有文档元信息
+   - 第二步: 根据文档列表，用 getDocumentById 逐一读取需要的文档（每次只读一个未读取的）
+   - 第三步: 当读取了足够的文档后，直接根据已读取的内容生成总结
+   - 第四步: 使用 updateDocumentContent 把总结写入当前文档
+   - 总结完成后设置 isComplete: true
+   - 不要一次性读取所有文档，按需读取
+` : ''}
 
 操作类型说明:
-- getDocumentById: 获取文档内容（仅在未获取时使用）
+- getDocumentById: 获取单个文档内容（仅在未获取时使用！已读取的文档不要再读取！）
+- getAllDocument: 获取所有文档的元信息列表（ID、标题等）
 - insertEnd: 在文档末尾追加内容
 - deleteAndSwap: 删除指定行并替换为新内容
 - deleteByRange: 删除指定行范围
+- updateDocumentContent: 直接更新整个文档内容（用于写入总结、改写等）
 
 请输出JSON格式的决策:
 
@@ -734,13 +838,16 @@ ${docContentSection}${iterationInfo}
     
     let operation = null
     if (operationMatch) {
-      operation = { option: operationMatch[1] }
+      operation = { option: operationMatch[1], args: [] }
       if (argsMatch) {
         try {
           operation.args = JSON.parse(argsMatch[1])
         } catch (e) {
+          this.logger.warn('Failed to parse args in fallback, using empty array', e)
           operation.args = []
         }
+      } else {
+        this.logger.warn('No args found in fallback parsing, using empty array')
       }
     }
     
@@ -752,9 +859,73 @@ ${docContentSection}${iterationInfo}
     }
   }
 
-  async executeOperation(operation) {
+  validateOperation(operation) {
     if (!operation) {
-      return { success: false, error: '没有操作指令' }
+      return { valid: false, error: '没有操作指令' }
+    }
+
+    if (!operation.option) {
+      return { valid: false, error: '操作缺少 option 字段' }
+    }
+
+    const func = MCP_FUNCTIONS[operation.option]
+    if (!func) {
+      return { valid: false, error: `未知的操作函数: ${operation.option}` }
+    }
+
+    const args = operation.args || []
+    const requiredParams = func.parameters || []
+    
+    if (args.length < requiredParams.length) {
+      return { 
+        valid: false, 
+        error: `参数不足: ${operation.option} 需要 ${requiredParams.length} 个参数，但只提供了 ${args.length} 个` 
+      }
+    }
+
+    for (let i = 0; i < requiredParams.length; i++) {
+      const param = requiredParams[i]
+      const arg = args[i]
+      
+      if (arg === undefined || arg === null || arg === '') {
+        return { 
+          valid: false, 
+          error: `参数无效: ${param.name} 不能为空` 
+        }
+      }
+    }
+
+    if (operation.option === 'getDocumentById' && args[0] && this.readDocuments.has(args[0])) {
+      const doc = this.readDocuments.get(args[0])
+      this.logger.info('Document already read, skipping', { 
+        docId: args[0], 
+        title: doc.title 
+      })
+      return { 
+        valid: false, 
+        error: `文档已读取，无需重复读取: ${doc.title}`,
+        skipExecution: true,
+        alreadyReadDoc: doc
+      }
+    }
+
+    return { valid: true }
+  }
+
+  async executeOperation(operation) {
+    const validation = this.validateOperation(operation)
+    if (!validation.valid) {
+      if (validation.skipExecution && validation.alreadyReadDoc) {
+        this.logger.info('Skipping execution, returning cached document', validation.alreadyReadDoc.title)
+        return { 
+          success: true, 
+          data: validation.alreadyReadDoc,
+          skipped: true,
+          message: `使用已缓存的文档: ${validation.alreadyReadDoc.title}`
+        }
+      }
+      this.logger.error('Operation validation failed', validation.error)
+      return { success: false, error: validation.error }
     }
 
     this.logger.info('Executing operation', operation)

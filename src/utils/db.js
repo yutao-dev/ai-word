@@ -340,3 +340,34 @@ export const insertEnd = async (docId, markdownStr) => {
 export const getDocumentById = async (id) => {
   return getDocument(id)
 }
+
+export const updateDocumentContent = async (docId, newContent) => {
+  try {
+    if (!docId || typeof docId !== 'string') {
+      return { success: false, error: '文档ID不能为空且必须是字符串' }
+    }
+    if (newContent === undefined || newContent === null) {
+      return { success: false, error: '新内容不能为空' }
+    }
+
+    const db = await getDB()
+    const doc = await db.get(STORES.DOCUMENTS, docId)
+    if (!doc) {
+      return { success: false, error: '文档不存在' }
+    }
+
+    const originalContent = doc.content
+    const updatedDoc = { ...doc, content: newContent, updatedAt: Date.now() }
+    await db.put(STORES.DOCUMENTS, updatedDoc)
+
+    return { 
+      success: true, 
+      doc: updatedDoc, 
+      originalContent, 
+      newContent 
+    }
+  } catch (error) {
+    console.error('Update document content error:', error)
+    return { success: false, error: error.message }
+  }
+}
