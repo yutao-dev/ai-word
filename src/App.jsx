@@ -54,9 +54,15 @@ function App() {
   })
 
   const refreshDocuments = useCallback(async () => {
+    console.log('[App] refreshDocuments called')
     const docs = await getAllDocuments()
+    console.log('[App] getAllDocuments returned', docs.length, 'documents')
+    const currentDoc = docs.find(d => d.id === currentDocId)
+    if (currentDoc) {
+      console.log('[App] current doc content length:', currentDoc.content?.length)
+    }
     setDocuments(docs)
-  }, [setDocuments])
+  }, [setDocuments, currentDocId])
 
   const editorRef = useRef(null)
 

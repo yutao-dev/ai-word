@@ -10,6 +10,7 @@ export const useAIWorkflow = (options = {}) => {
   const [decisions, setDecisions] = useState([])
   const [summary, setSummary] = useState(null)
   const [aiSummary, setAiSummary] = useState(null)
+  const [taskPlan, setTaskPlan] = useState(null)
   const [isRunning, setIsRunning] = useState(false)
   const [pendingPreview, setPendingPreview] = useState(null)
   
@@ -18,12 +19,11 @@ export const useAIWorkflow = (options = {}) => {
 
   const initializeWorkflow = useCallback(() => {
     workflowRef.current = new AIWorkflow({
-      maxIterations: 10,
-      maxValidations: 3,
+      maxIterations: 30,
       maxRetries: 3,
       onStateChange: (newState) => {
         setState(newState)
-        setIsRunning(newState !== WORKFLOW_STATES.IDLE && newState !== WORKFLOW_STATES.COMPLETED && newState !== WORKFLOW_STATES.ERROR && newState !== WORKFLOW_STATES.PENDING_CONFIRMATION && newState !== WORKFLOW_STATES.SUMMARIZING)
+        setIsRunning(newState !== WORKFLOW_STATES.IDLE && newState !== WORKFLOW_STATES.COMPLETED && newState !== WORKFLOW_STATES.ERROR && newState !== WORKFLOW_STATES.PENDING_CONFIRMATION)
       },
       onLog: (log) => {
         setLogs(prev => [...prev, log])
@@ -45,6 +45,12 @@ export const useAIWorkflow = (options = {}) => {
       },
       onAISummary: (summary) => {
         setAiSummary(summary)
+      },
+      onTaskPlan: (plan) => {
+        setTaskPlan(plan)
+      },
+      onTaskUpdate: (plan) => {
+        setTaskPlan({ ...plan })
       },
       llmCaller: async (prompt) => {
         const result = await fetchLLMResponse(config, prompt)
@@ -68,6 +74,7 @@ export const useAIWorkflow = (options = {}) => {
     setDecisions([])
     setSummary(null)
     setAiSummary(null)
+    setTaskPlan(null)
     setPendingPreview(null)
     
     try {
@@ -100,6 +107,7 @@ export const useAIWorkflow = (options = {}) => {
     setDecisions([])
     setSummary(null)
     setAiSummary(null)
+    setTaskPlan(null)
     setPendingPreview(null)
     setState(WORKFLOW_STATES.IDLE)
   }, [])
@@ -111,6 +119,7 @@ export const useAIWorkflow = (options = {}) => {
     decisions,
     summary,
     aiSummary,
+    taskPlan,
     isRunning,
     pendingPreview,
     startTask,

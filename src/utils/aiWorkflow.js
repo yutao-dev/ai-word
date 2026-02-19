@@ -59,17 +59,14 @@ export class AIWorkflow {
     this.aiSummary = null
     this.allDocumentsMeta = null
     this.readDocuments = new Map()
-    this.maxIterations = options.maxIterations || 10
-    this.maxValidations = options.maxValidations || 3
+    this.maxIterations = options.maxIterations || 30
     this.maxRetries = options.maxRetries || 3
-    this.progressScore = 0
-    this.requiredProgress = 5
-    this.lastOperationType = null
-    this.consecutiveReads = 0
-    this.validationCount = 0
     this.retryCount = 0
     this.lastFailedOperation = null
     this.isSummaryTask = false
+    this.taskPlan = null
+    this.completedTaskIds = new Set()
+    this.currentTaskIndex = 0
     this.onStateChange = options.onStateChange || (() => {})
     this.onLog = options.onLog || (() => {})
     this.onOperation = options.onOperation || (() => {})
@@ -77,6 +74,8 @@ export class AIWorkflow {
     this.onSummary = options.onSummary || (() => {})
     this.onPendingConfirmation = options.onPendingConfirmation || (() => {})
     this.onAISummary = options.onAISummary || (() => {})
+    this.onTaskPlan = options.onTaskPlan || (() => {})
+    this.onTaskUpdate = options.onTaskUpdate || (() => {})
     this.llmCaller = options.llmCaller || null
   }
 
@@ -104,14 +103,12 @@ export class AIWorkflow {
     this.originalDocContent = originalContent || null
     this.allDocumentsMeta = null
     this.readDocuments = new Map()
-    this.progressScore = 0
-    this.requiredProgress = 5
-    this.lastOperationType = null
-    this.consecutiveReads = 0
-    this.validationCount = 0
     this.retryCount = 0
     this.lastFailedOperation = null
     this.isSummaryTask = userRequest.includes('总结') || userRequest.includes('summary')
+    this.taskPlan = null
+    this.completedTaskIds = new Set()
+    this.currentTaskIndex = 0
     this.currentTask = {
       userRequest,
       docId,
@@ -121,14 +118,56 @@ export class AIWorkflow {
 
     this.logger.info('Starting new task', { userRequest, docId })
     
+    this.setState(WORKFLOW_STATES.INITIALIZING)
+    
     try {
       startTransaction()
+      
+      this.generateTaskPlan(userRequest, docId).catch(err => {
+        this.logger.warn('Task plan generation failed, continuing without plan', err)
+      })
+      
       await this.runWorkflow()
     } catch (error) {
       this.logger.error('Workflow error', error)
       await rollbackTransaction()
       this.setState(WORKFLOW_STATES.ERROR)
       throw error
+    }
+  }
+
+  markTaskComplete(taskId) {
+    if (!this.completedTaskIds.has(taskId)) {
+      this.completedTaskIds.add(taskId)
+      this.logger.info('Task marked as complete', { taskId })
+      
+      if (this.taskPlan) {
+        const task = this.taskPlan.tasks.find(t => t.id === taskId)
+        if (task) {
+          task.isComplete = true
+          this.onTaskUpdate(this.taskPlan)
+        }
+      }
+    }
+  }
+
+  areAllTasksComplete() {
+    if (!this.taskPlan || !this.taskPlan.tasks) {
+      return false
+    }
+    return this.taskPlan.tasks.every(task => this.completedTaskIds.has(task.id))
+  }
+
+  getTaskPlanWithStatus() {
+    if (!this.taskPlan) {
+      return null
+    }
+    return {
+      ...this.taskPlan,
+      tasks: this.taskPlan.tasks.map(task => ({
+        ...task,
+        isComplete: this.completedTaskIds.has(task.id)
+      }))
     }
   }
 
@@ -139,65 +178,22 @@ export class AIWorkflow {
       this.currentTask.iterations++
       this.logger.info(`Iteration ${this.currentTask.iterations}/${this.maxIterations}`)
 
-      if (this.shouldTerminateEarly()) {
-        this.logger.info('Threshold reached, checking validation count...', { 
-          validationCount: this.validationCount, 
-          maxValidations: this.maxValidations 
-        })
-
-        if (this.validationCount < this.maxValidations) {
-          this.logger.info('Starting validation check...')
-          const validationResult = await this.validateRequirements(userRequest, docId)
-          
-          if (validationResult.needsMoreWork) {
-            this.validationCount++
-            const reduction = Math.max(1, 3 - this.validationCount + 1)
-            this.progressScore = Math.max(0, this.progressScore - reduction)
-            this.logger.info('Validation: Needs more work, continuing workflow', { 
-              validationCount: this.validationCount,
-              reduction,
-              newProgressScore: this.progressScore 
-            })
-            
-            const decision = {
-              iteration: this.currentTask.iterations,
-              type: 'validation_continue',
-              reason: validationResult.reason,
-              progressScore: this.progressScore,
-              validationCount: this.validationCount
-            }
-            this.decisions.push(decision)
-            this.onDecision(decision)
-            continue
-          } else {
-            this.validationCount++
-            this.logger.info('Validation: Requirements met, terminating workflow')
-            
-            const decision = {
-              iteration: this.currentTask.iterations,
-              type: 'early_termination',
-              reason: validationResult.reason || '进度阈值已达到且需求已验证满足',
-              progressScore: this.progressScore,
-              consecutiveReads: this.consecutiveReads,
-              validationCount: this.validationCount
-            }
-            this.decisions.push(decision)
-            this.onDecision(decision)
-            break
-          }
-        } else {
+      if (this.areAllTasksComplete()) {
+        this.logger.info('All tasks in plan are complete, validating final result...')
+        const validationResult = await this.validateRequirements(userRequest, docId)
+        
+        if (!validationResult.needsMoreWork) {
           const decision = {
             iteration: this.currentTask.iterations,
-            type: 'early_termination',
-            reason: `已达到最大验证次数(${this.maxValidations})，强制终止`,
-            progressScore: this.progressScore,
-            consecutiveReads: this.consecutiveReads,
-            validationCount: this.validationCount
+            type: 'complete',
+            reason: '所有任务已完成且验证通过',
+            message: validationResult.reason
           }
           this.decisions.push(decision)
           this.onDecision(decision)
-          this.logger.info('Early termination due to max validations reached', decision)
           break
+        } else {
+          this.logger.info('Validation shows more work needed, continuing...', validationResult)
         }
       }
 
@@ -215,6 +211,53 @@ export class AIWorkflow {
       this.onDecision(decision)
 
       if (!analysisResult.needsAction) {
+        if (this.shouldForceContinueForSummaryTask()) {
+          this.logger.info('Summary task not actually complete, forcing continue')
+          const forceOperation = {
+            option: 'updateDocumentContent',
+            args: [docId, this.generateSummaryFromReadDocs()]
+          }
+          const forceDecision = {
+            iteration: this.currentTask.iterations,
+            type: 'action',
+            message: '总结任务尚未完成写入操作，继续执行',
+            operation: forceOperation
+          }
+          this.decisions.push(forceDecision)
+          this.onDecision(forceDecision)
+          
+          this.setState(WORKFLOW_STATES.EXECUTING)
+          const forceResult = await this.executeOperation(forceOperation)
+          forceResult.operation = forceOperation
+          this.operationHistory.push(forceResult)
+          this.onOperation(forceResult)
+          
+          this.logger.info('Force write result', {
+            success: forceResult.success,
+            hasDoc: !!forceResult.doc,
+            hasNewContent: forceResult.newContent !== undefined,
+            docContentLength: forceResult.doc?.content?.length,
+            newContentLength: forceResult.newContent?.length,
+            error: forceResult.error
+          })
+          
+          if (forceResult.success) {
+            if (forceResult.newContent !== undefined) {
+              this.currentDocContent = forceResult.newContent
+            } else if (forceResult.doc && forceResult.doc.content !== undefined) {
+              this.currentDocContent = forceResult.doc.content
+            } else if (forceResult.data) {
+              if (forceResult.data.content !== undefined) {
+                this.currentDocContent = forceResult.data.content
+              } else if (forceResult.data.doc && forceResult.data.doc.content !== undefined) {
+                this.currentDocContent = forceResult.data.doc.content
+              }
+            }
+            this.logger.info('Force write updated currentDocContent', { 
+              contentLength: this.currentDocContent?.length || 0 
+            })
+          }
+        }
         break
       }
 
@@ -222,7 +265,7 @@ export class AIWorkflow {
       const executionResult = await this.executeOperation(analysisResult.operation)
       this.operationHistory.push(executionResult)
       
-      this.updateProgressMetrics(analysisResult.operation, executionResult)
+      this.tryMarkRelevantTaskComplete(analysisResult.operation, executionResult)
       
       if (executionResult.success) {
         if (executionResult.newContent !== undefined) {
@@ -232,36 +275,32 @@ export class AIWorkflow {
           this.currentDocContent = executionResult.doc.content
           this.logger.info('Updated currentDocContent from doc', { contentLength: this.currentDocContent.length })
         } else if (executionResult.data) {
-          if (executionResult.data.content !== undefined) {
+          if (Array.isArray(executionResult.data)) {
+            this.allDocumentsMeta = executionResult.data
+            this.logger.info('Saved allDocumentsMeta', { count: executionResult.data.length })
+          } else if (executionResult.data.id && executionResult.data.content !== undefined) {
+            this.readDocuments.set(executionResult.data.id, executionResult.data)
+            this.logger.info('Saved document to readDocuments', { 
+              docId: executionResult.data.id, 
+              title: executionResult.data.title,
+              contentLength: executionResult.data.content?.length,
+              totalReadDocs: this.readDocuments.size
+            })
+            console.log('[AIWorkflow] Document saved to readDocuments:', {
+              id: executionResult.data.id,
+              title: executionResult.data.title,
+              readDocumentsKeys: Array.from(this.readDocuments.keys())
+            })
+            if (!this.currentDocContent) {
+              this.currentDocContent = executionResult.data.content
+              this.logger.info('Also set as currentDocContent')
+            }
+          } else if (executionResult.data.content !== undefined) {
             this.currentDocContent = executionResult.data.content
             this.logger.info('Updated currentDocContent from data.content', { contentLength: this.currentDocContent.length })
           } else if (executionResult.data.doc && executionResult.data.doc.content !== undefined) {
             this.currentDocContent = executionResult.data.doc.content
             this.logger.info('Updated currentDocContent from data.doc', { contentLength: this.currentDocContent.length })
-          } else if (executionResult.data.id && executionResult.data.content !== undefined) {
-            this.readDocuments.set(executionResult.data.id, executionResult.data)
-            this.logger.info('Saved document to readDocuments', { 
-              docId: executionResult.data.id, 
-              title: executionResult.data.title 
-            })
-          } else if (Array.isArray(executionResult.data)) {
-            this.allDocumentsMeta = executionResult.data
-            this.logger.info('Saved allDocumentsMeta', { count: executionResult.data.length })
-            
-            if (this.isSummaryTask && executionResult.data.length > 0) {
-              const docCount = executionResult.data.length
-              const estimatedReads = docCount
-              const estimatedWrites = 1
-              const estimatedOperations = 1 + estimatedReads + estimatedWrites
-              
-              this.requiredProgress = Math.max(5, estimatedOperations * 0.5)
-              this.logger.info('Dynamic progress threshold calculated for summary task', {
-                docCount,
-                estimatedReads,
-                estimatedWrites,
-                requiredProgress: this.requiredProgress
-              })
-            }
           }
         }
         this.retryCount = 0
@@ -333,15 +372,53 @@ export class AIWorkflow {
 
     await this.summarize()
     
+    this.logger.info('Workflow finished, checking for content changes', {
+      hasOriginalContent: !!this.originalDocContent,
+      hasCurrentContent: !!this.currentDocContent,
+      originalLength: this.originalDocContent?.length,
+      currentLength: this.currentDocContent?.length,
+      hasChanges: this.hasContentChanges()
+    })
+    
     if (this.hasContentChanges()) {
       this.setState(WORKFLOW_STATES.PENDING_CONFIRMATION)
       this.onPendingConfirmation({
         originalContent: this.originalDocContent,
         modifiedContent: this.currentDocContent
       })
+      this.logger.info('Pending confirmation set', {
+        originalPreview: this.originalDocContent?.substring(0, 100),
+        modifiedPreview: this.currentDocContent?.substring(0, 100)
+      })
     } else {
       commitTransaction()
       this.setState(WORKFLOW_STATES.COMPLETED)
+    }
+  }
+
+  tryMarkRelevantTaskComplete(operation, executionResult) {
+    if (!this.taskPlan || !executionResult.success) {
+      return
+    }
+
+    const operationType = operation?.option
+    const incompleteTasks = this.taskPlan.tasks.filter(t => !this.completedTaskIds.has(t.id))
+    
+    if (incompleteTasks.length === 0) {
+      return
+    }
+
+    const firstIncomplete = incompleteTasks[0]
+    
+    if (operationType === 'getAllDocument' || operationType === 'getDocumentById') {
+      if (firstIncomplete.type === 'read') {
+        this.markTaskComplete(firstIncomplete.id)
+      }
+    } else if (operationType === 'insertEnd' || operationType === 'deleteAndSwap' || 
+               operationType === 'deleteByRange' || operationType === 'updateDocumentContent') {
+      if (firstIncomplete.type === 'write' || firstIncomplete.type === 'edit') {
+        this.markTaskComplete(firstIncomplete.id)
+      }
     }
   }
 
@@ -606,6 +683,12 @@ ${contentDiff}
   }
 
   async confirmChanges() {
+    this.logger.info('Confirming changes', {
+      hasContentChanges: this.hasContentChanges(),
+      originalContentLength: this.originalDocContent?.length,
+      currentContentLength: this.currentDocContent?.length
+    })
+    
     const aiSummary = await this.generateAISummary()
     if (aiSummary) {
       this.aiSummary = aiSummary
@@ -615,86 +698,12 @@ ${contentDiff}
     }
     commitTransaction()
     this.setState(WORKFLOW_STATES.COMPLETED)
+    this.logger.info('Changes confirmed and transaction committed')
   }
 
   rejectChanges() {
     rollbackTransaction()
     this.setState(WORKFLOW_STATES.IDLE)
-  }
-
-  updateProgressMetrics(operation, executionResult) {
-    if (executionResult.skipped) {
-      this.logger.info('Skipped operation, not updating progress', executionResult.message)
-      return
-    }
-    
-    const operationType = operation?.option
-    
-    if (operationType === 'getDocumentById' || operationType === 'getAllDocument') {
-      this.consecutiveReads++
-      
-      if (this.isSummaryTask) {
-        if (operationType === 'getAllDocument') {
-          this.progressScore += 1
-        } else {
-          this.progressScore += 0.7
-        }
-      } else {
-        this.progressScore += 0.5
-      }
-    } else if (operationType === 'insertEnd' || operationType === 'deleteAndSwap' || operationType === 'deleteByRange' || operationType === 'updateDocumentContent') {
-      this.consecutiveReads = 0
-      
-      if (this.isSummaryTask && operationType === 'updateDocumentContent') {
-        this.progressScore += 3
-      } else {
-        this.progressScore += 2
-      }
-      
-      if (executionResult.success) {
-        this.progressScore += 1
-      }
-    }
-    
-    if (!this.isSummaryTask && this.lastOperationType === operationType && operationType === 'getDocumentById') {
-      this.progressScore -= 1
-    }
-    
-    this.lastOperationType = operationType
-    this.logger.info('Progress metrics updated', {
-      progressScore: this.progressScore,
-      requiredProgress: this.requiredProgress,
-      consecutiveReads: this.consecutiveReads,
-      lastOperationType: this.lastOperationType,
-      isSummaryTask: this.isSummaryTask
-    })
-  }
-
-  shouldTerminateEarly() {
-    if (this.progressScore >= this.requiredProgress) {
-      this.logger.info('Progress threshold reached', { 
-        progressScore: this.progressScore, 
-        requiredProgress: this.requiredProgress 
-      })
-      return true
-    }
-    
-    if (!this.isSummaryTask && this.consecutiveReads >= 2 && this.currentDocContent) {
-      this.logger.warn('Detected redundant read operations for non-summary task, forcing termination')
-      return true
-    }
-    
-    if (this.isSummaryTask && this.consecutiveReads >= 5) {
-      this.logger.warn('Too many consecutive reads for summary task, forcing termination')
-      return true
-    }
-    
-    if (this.progressScore < 0) {
-      this.logger.warn('Negative progress score detected, terminating')
-      return true
-    }
-    
-    return false
   }
 
   async analyzeRequest(userRequest, docId) {
@@ -716,17 +725,26 @@ ${contentDiff}
   buildAnalysisPrompt(userRequest, docId) {
     const docs = generateFunctionDocumentation()
     const docContentSection = this.currentDocContent 
-      ? `\n当前文档内容:\n\`\`\`\n${this.currentDocContent}\n\`\`\`\n`
+      ? `\n当前文档内容:\n\`\`\`\n${this.currentDocContent.substring(0, 2000)}${this.currentDocContent.length > 2000 ? '...(内容过长已截断)' : ''}\n\`\`\`\n`
       : '\n当前文档内容: 尚未获取，请先调用 getDocumentById 获取文档内容\n'
     
     let docsMetaSection = ''
+    let unreadDocsList = []
     if (this.allDocumentsMeta && this.allDocumentsMeta.length > 0) {
       docsMetaSection = '\n=== 所有文档列表 ===\n'
       this.allDocumentsMeta.forEach((doc, index) => {
         const isRead = this.readDocuments.has(doc.id)
-        docsMetaSection += `${index + 1}. ${doc.title} (ID: ${doc.id})${isRead ? ' [已读取]' : ''}\n`
+        const isCurrent = doc.id === docId
+        docsMetaSection += `${index + 1}. ${doc.title} (ID: ${doc.id})${isRead ? ' [已读取]' : ''}${isCurrent ? ' [当前文档]' : ''}\n`
+        if (!isRead && !isCurrent) {
+          unreadDocsList.push(doc)
+        }
       })
       docsMetaSection += '====================\n'
+      docsMetaSection += `\n未读取的文档数量: ${unreadDocsList.length}\n`
+      if (unreadDocsList.length > 0) {
+        docsMetaSection += `下一个应该读取的文档: ${unreadDocsList[0].title} (ID: ${unreadDocsList[0].id})\n`
+      }
     }
     
     let readDocsSection = ''
@@ -735,7 +753,7 @@ ${contentDiff}
       readDocsSection += `（已读取 ${this.readDocuments.size} 个文档，请勿重复读取）\n`
       this.readDocuments.forEach((doc, docId) => {
         readDocsSection += `\n--- 文档: ${doc.title} (ID: ${docId}) ---\n`
-        readDocsSection += `${doc.content}\n`
+        readDocsSection += `${doc.content.substring(0, 1000)}${doc.content.length > 1000 ? '...(内容过长已截断)' : ''}\n`
       })
       readDocsSection += '\n========================\n'
     }
@@ -763,11 +781,11 @@ ${docContentSection}${docsMetaSection}${readDocsSection}${iterationInfo}
 ${isSummaryTask ? `
 7. 【总结任务特殊规则】:
    - 第一步: 如果还没有文档列表，使用 getAllDocument 获取所有文档元信息
-   - 第二步: 根据文档列表，用 getDocumentById 逐一读取需要的文档（每次只读一个未读取的）
-   - 第三步: 当读取了足够的文档后，直接根据已读取的内容生成总结
-   - 第四步: 使用 updateDocumentContent 把总结写入当前文档
+   - 第二步: 根据文档列表，用 getDocumentById 逐一读取【未读取】的文档（每次只读一个！）
+   - 第三步: 当读取了足够的文档后，使用 updateDocumentContent 把总结写入当前文档
    - 总结完成后设置 isComplete: true
-   - 不要一次性读取所有文档，按需读取
+   - 【关键】每次只读取一个未读取的文档，不要重复读取已标记 [已读取] 的文档！
+   - 【关键】查看上方"下一个应该读取的文档"提示，读取该文档
 ` : ''}
 
 操作类型说明:
@@ -823,40 +841,178 @@ ${isSummaryTask ? `
     
     const lowerResponse = response.toLowerCase()
     
-    const needsAction = lowerResponse.includes('needsaction": true') || 
-                       lowerResponse.includes('needsaction":true') ||
-                       lowerResponse.includes('需要执行') ||
-                       lowerResponse.includes('执行操作')
-    
-    const isComplete = lowerResponse.includes('iscomplete": true') ||
-                      lowerResponse.includes('iscomplete":true') ||
-                      lowerResponse.includes('任务完成') ||
-                      lowerResponse.includes('需求已满足')
-    
     const operationMatch = response.match(/"option"\s*:\s*"([^"]+)"/)
     const argsMatch = response.match(/"args"\s*:\s*(\[[^\]]*\])/)
     
     let operation = null
+    let needsAction = false
+    let isComplete = false
+    
     if (operationMatch) {
-      operation = { option: operationMatch[1], args: [] }
+      const optionName = operationMatch[1]
+      operation = { option: optionName, args: [] }
+      needsAction = true
+      
       if (argsMatch) {
         try {
           operation.args = JSON.parse(argsMatch[1])
         } catch (e) {
-          this.logger.warn('Failed to parse args in fallback, using empty array', e)
-          operation.args = []
+          this.logger.warn('Failed to parse args in fallback, will try to infer args', e)
         }
+      }
+      
+      operation = this.inferMissingArgs(operation)
+    } else {
+      const hasNeedsActionTrue = lowerResponse.includes('needsaction": true') || 
+                                  lowerResponse.includes('needsaction":true')
+      const hasIsCompleteTrue = lowerResponse.includes('iscomplete": true') ||
+                                 lowerResponse.includes('iscomplete":true')
+      
+      if (hasIsCompleteTrue && !hasNeedsActionTrue) {
+        isComplete = true
+        needsAction = false
+      } else if (hasNeedsActionTrue) {
+        needsAction = true
+        isComplete = false
       } else {
-        this.logger.warn('No args found in fallback parsing, using empty array')
+        const hasTaskComplete = lowerResponse.includes('任务完成') || lowerResponse.includes('需求已满足')
+        const hasExecuteAction = lowerResponse.includes('需要执行') || lowerResponse.includes('执行操作')
+        
+        if (hasExecuteAction && !hasTaskComplete) {
+          needsAction = true
+        } else if (hasTaskComplete && !hasExecuteAction) {
+          isComplete = true
+        }
       }
     }
     
     return {
       needsAction: needsAction,
-      isComplete: isComplete || !needsAction,
+      isComplete: isComplete,
       message: '通过备用解析方式解析',
       operation: operation
     }
+  }
+
+  inferMissingArgs(operation) {
+    if (!operation || !operation.option) {
+      return operation
+    }
+
+    const { docId } = this.currentTask
+    const func = MCP_FUNCTIONS[operation.option]
+    if (!func) {
+      return operation
+    }
+
+    const requiredParams = func.parameters || []
+    const currentArgs = operation.args || []
+    
+    if (currentArgs.length >= requiredParams.length) {
+      return operation
+    }
+
+    const newArgs = [...currentArgs]
+    
+    for (let i = currentArgs.length; i < requiredParams.length; i++) {
+      const param = requiredParams[i]
+      
+      if (param.name === 'docId') {
+        newArgs.push(docId)
+        this.logger.info('Inferred docId parameter', { docId })
+      } else if (param.name === 'newContent' && operation.option === 'updateDocumentContent') {
+        const summary = this.generateSummaryFromReadDocs()
+        if (summary) {
+          newArgs.push(summary)
+          this.logger.info('Generated and inferred newContent parameter')
+        } else {
+          this.logger.warn('Could not generate summary, cannot infer newContent')
+          return operation
+        }
+      } else if (param.name === 'markdownStr' && operation.option === 'insertEnd') {
+        const summary = this.generateSummaryFromReadDocs()
+        if (summary) {
+          newArgs.push(summary)
+          this.logger.info('Generated and inferred markdownStr parameter')
+        } else {
+          this.logger.warn('Could not generate summary, cannot infer markdownStr')
+          return operation
+        }
+      } else if (param.name === 'id' && operation.option === 'getDocumentById') {
+        const unreadDoc = this.allDocumentsMeta?.find(doc => !this.readDocuments.has(doc.id))
+        if (unreadDoc) {
+          newArgs.push(unreadDoc.id)
+          this.logger.info('Inferred id parameter for getDocumentById', { docId: unreadDoc.id })
+        }
+      }
+    }
+    
+    return { ...operation, args: newArgs }
+  }
+
+  generateSummaryFromReadDocs() {
+    if (this.readDocuments.size === 0) {
+      return null
+    }
+
+    let summary = '# 文档总结\n\n'
+    
+    this.readDocuments.forEach((doc, docId) => {
+      summary += `## ${doc.title}\n\n`
+      const firstLines = doc.content.split('\n').slice(0, 10).join('\n')
+      summary += firstLines
+      if (doc.content.split('\n').length > 10) {
+        summary += '\n...\n'
+      }
+      summary += '\n\n'
+    })
+    
+    return summary
+  }
+
+  shouldForceContinueForSummaryTask() {
+    if (!this.isSummaryTask) {
+      return false
+    }
+
+    if (!this.allDocumentsMeta || this.allDocumentsMeta.length === 0) {
+      this.logger.info('Summary task: no documents meta available')
+      return false
+    }
+
+    const totalDocs = this.allDocumentsMeta.length
+    const readDocs = this.readDocuments.size
+    
+    this.logger.info('Summary task check', {
+      totalDocs,
+      readDocs,
+      operationHistoryLength: this.operationHistory.length
+    })
+
+    const hasWriteOperation = this.operationHistory.some(op => 
+      op.success && (
+        op.operation?.option === 'updateDocumentContent' ||
+        op.operation?.option === 'insertEnd' ||
+        op.operation?.option === 'deleteAndSwap'
+      )
+    )
+
+    if (hasWriteOperation) {
+      this.logger.info('Summary task: already has write operation, no need to force')
+      return false
+    }
+
+    if (readDocs > 0) {
+      this.logger.info('Summary task: has read documents but no write operation, should force write', {
+        readDocs,
+        totalDocs,
+        hasWriteOperation
+      })
+      return true
+    }
+
+    this.logger.info('Summary task: no documents read yet, cannot force write')
+    return false
   }
 
   validateOperation(operation) {
@@ -901,6 +1057,10 @@ ${isSummaryTask ? `
         docId: args[0], 
         title: doc.title 
       })
+      console.log('[AIWorkflow] Duplicate read detected, skipping:', {
+        requestedId: args[0],
+        readDocumentsKeys: Array.from(this.readDocuments.keys())
+      })
       return { 
         valid: false, 
         error: `文档已读取，无需重复读取: ${doc.title}`,
@@ -908,6 +1068,12 @@ ${isSummaryTask ? `
         alreadyReadDoc: doc
       }
     }
+    
+    console.log('[AIWorkflow] validateOperation passed:', {
+      option: operation.option,
+      args: args,
+      readDocumentsKeys: Array.from(this.readDocuments.keys())
+    })
 
     return { valid: true }
   }
@@ -936,12 +1102,113 @@ ${isSummaryTask ? `
     return result
   }
 
+  async generateTaskPlan(userRequest, docId) {
+    if (!this.llmCaller) {
+      this.logger.warn('LLM caller not configured, skipping task plan generation')
+      return null
+    }
+
+    this.logger.info('Generating task plan')
+    const prompt = this.buildTaskPlanPrompt(userRequest, docId)
+    
+    try {
+      const response = await this.llmCaller(prompt)
+      this.logger.info('Task plan response received', { response })
+      
+      const taskPlan = this.parseTaskPlanResponse(response)
+      if (taskPlan) {
+        this.taskPlan = taskPlan
+        this.onTaskPlan(taskPlan)
+        this.logger.info('Task plan generated', taskPlan)
+      }
+      return taskPlan
+    } catch (error) {
+      this.logger.error('Failed to generate task plan', error)
+      return null
+    }
+  }
+
+  buildTaskPlanPrompt(userRequest, docId) {
+    const docs = generateFunctionDocumentation()
+    
+    return `
+请分析用户需求，并生成一个执行计划。这个计划仅用于展示给用户参考，不会直接用于执行。
+
+可用的函数接口:
+${docs}
+
+用户需求: ${userRequest}
+当前文档ID: ${docId}
+
+请输出JSON格式的任务计划：
+{
+  "taskMessage": "对整个任务的简短描述",
+  "tasks": [
+    {
+      "id": "1",
+      "description": "第一步要做什么",
+      "type": "read"
+    },
+    {
+      "id": "2", 
+      "description": "第二步要做什么",
+      "type": "read"
+    },
+    {
+      "id": "3",
+      "description": "第三步要做什么",
+      "type": "write"
+    }
+  ]
+}
+
+要求：
+1. type 只能是 "read"（读取操作）、"write"（写入操作）或 "edit"（编辑操作）
+2. 每个任务描述要简洁明了
+3. 任务数量要合理，不要过度分解（建议3-8个任务）
+4. 这只是一个计划展示，实际执行时会根据情况动态调整
+`
+  }
+
+  parseTaskPlanResponse(response) {
+    try {
+      let jsonStr = this.extractAndFixJson(response)
+      if (jsonStr) {
+        try {
+          const result = JSON.parse(jsonStr)
+          if (result.taskMessage && Array.isArray(result.tasks)) {
+            return result
+          }
+        } catch (parseError) {
+          this.logger.warn('Task plan JSON parse failed', { jsonStr, error: parseError })
+        }
+      }
+      return this.fallbackParseTaskPlan(response)
+    } catch (error) {
+      this.logger.error('Parse task plan error', error)
+      return null
+    }
+  }
+
+  fallbackParseTaskPlan(response) {
+    this.logger.info('Using fallback task plan parsing')
+    return {
+      taskMessage: 'AI 正在处理您的需求',
+      tasks: [
+        { id: '1', description: '分析需求', type: 'read' },
+        { id: '2', description: '执行操作', type: 'edit' },
+        { id: '3', description: '完成任务', type: 'write' }
+      ]
+    }
+  }
+
   async summarize() {
     this.setState(WORKFLOW_STATES.SUMMARIZING)
     this.logger.info('Generating summary')
 
     const summary = {
       task: this.currentTask,
+      taskPlan: this.taskPlan,
       duration: Date.now() - this.currentTask.startTime,
       iterations: this.currentTask.iterations,
       operations: this.operationHistory,

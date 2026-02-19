@@ -15,6 +15,7 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
     decisions,
     summary,
     aiSummary,
+    taskPlan,
     isRunning,
     pendingPreview,
     startTask,
@@ -56,10 +57,14 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
   }
 
   const handleConfirm = async () => {
+    console.log('[AIWorkflowPanel] handleConfirm called')
     await confirmChanges()
+    console.log('[AIWorkflowPanel] confirmChanges completed')
     showSuccess('修改已应用！')
     if (onUpdateDocuments) {
-      onUpdateDocuments()
+      console.log('[AIWorkflowPanel] calling onUpdateDocuments')
+      await onUpdateDocuments()
+      console.log('[AIWorkflowPanel] onUpdateDocuments completed')
     }
   }
 
@@ -140,6 +145,44 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
             </button>
           </div>
         </div>
+
+        {taskPlan && (
+          <div className="task-plan-section">
+            <div 
+              className="section-header" 
+              onClick={() => setExpanded(p => ({ ...p, taskPlan: !p.taskPlan }))}
+            >
+              <span>📋 AI 执行计划</span>
+              <span>{expanded.taskPlan ? '▼' : '▶'}</span>
+            </div>
+            {expanded.taskPlan !== false && (
+              <div className="task-plan-container">
+                <div className="task-plan-message">
+                  <strong>任务概述:</strong> {taskPlan.taskMessage}
+                </div>
+                <div className="task-plan-tasks">
+                  {taskPlan.tasks.map((task, i) => (
+                    <div key={i} className={`task-plan-item task-type-${task.type} ${task.isComplete ? 'task-complete' : ''}`}>
+                      <span className="task-status">
+                        {task.isComplete ? '✅' : '⬜'}
+                      </span>
+                      <span className="task-id">{task.id}.</span>
+                      <span className="task-desc">{task.description}</span>
+                      <span className={`task-badge badge-${task.type}`}>
+                        {task.type === 'read' ? '📖 读取' : 
+                         task.type === 'write' ? '✏️ 写入' : 
+                         task.type === 'edit' ? '🔧 编辑' : task.type}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="task-plan-note">
+                  💡 注意：这只是 AI 的初步计划，实际执行时可能会根据情况动态调整
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {logs.length > 0 && (
           <div className="logs-section">
@@ -360,6 +403,101 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
           flex-shrink: 0;
           overflow-y: auto;
           max-height: calc(100vh - 120px);
+        }
+
+        .task-plan-container {
+          background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+          border-radius: 6px;
+          padding: 12px;
+          border-left: 3px solid #0ea5e9;
+        }
+
+        .task-plan-message {
+          font-size: 14px;
+          color: #0c4a6e;
+          margin-bottom: 12px;
+          line-height: 1.5;
+        }
+
+        .task-plan-tasks {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+
+        .task-plan-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 12px;
+          background-color: white;
+          border-radius: 6px;
+          font-size: 13px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+          transition: all 0.2s ease;
+        }
+
+        .task-plan-item.task-complete {
+          background-color: #f0fdf4;
+          opacity: 0.8;
+        }
+
+        .task-status {
+          font-size: 14px;
+          min-width: 20px;
+        }
+
+        .task-id {
+          font-weight: 600;
+          color: #0369a1;
+          min-width: 20px;
+        }
+
+        .task-plan-item.task-complete .task-id {
+          color: #15803d;
+        }
+
+        .task-desc {
+          flex: 1;
+          color: #374151;
+        }
+
+        .task-plan-item.task-complete .task-desc {
+          color: #6b7280;
+          text-decoration: line-through;
+        }
+
+        .task-badge {
+          font-size: 11px;
+          padding: 2px 8px;
+          border-radius: 4px;
+          font-weight: 500;
+          white-space: nowrap;
+        }
+
+        .badge-read {
+          background-color: #dbeafe;
+          color: #1d4ed8;
+        }
+
+        .badge-write {
+          background-color: #fef3c7;
+          color: #b45309;
+        }
+
+        .badge-edit {
+          background-color: #dcfce7;
+          color: #15803d;
+        }
+
+        .task-plan-note {
+          font-size: 12px;
+          color: #475569;
+          background-color: rgba(255,255,255,0.7);
+          padding: 8px 12px;
+          border-radius: 4px;
+          line-height: 1.4;
         }
         .ai-workflow-header {
           display: flex;
