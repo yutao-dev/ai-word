@@ -26,7 +26,7 @@ app.include_router(api_router, prefix="/api/v1")
 @app.on_event("startup")
 async def startup_event():
     init_db()
-    print(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} started")
+    print(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
 
 
 @app.get("/")

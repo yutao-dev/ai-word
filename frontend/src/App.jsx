@@ -8,10 +8,12 @@ import SettingsModal from './components/SettingsModal'
 import DiffModal from './components/DiffModal'
 import EditorPane from './components/EditorPane'
 import ExportMenu from './components/ExportMenu'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { useDocuments } from './hooks/useDocuments'
 import { useLLMConfig } from './hooks/useLLMConfig'
+import { documentApi } from './services/api'
 import { getAllDocuments } from './utils/db'
-import { showSuccess, showWarning, showExportToast } from './utils/toast'
+import { showSuccess, showWarning, showError, showExportToast } from './utils/toast'
 
 function App() {
   const {
@@ -55,14 +57,34 @@ function App() {
 
   const refreshDocuments = useCallback(async () => {
     console.log('[App] refreshDocuments called')
-    const docs = await getAllDocuments()
-    console.log('[App] getAllDocuments returned', docs.length, 'documents')
-    const currentDoc = docs.find(d => d.id === currentDocId)
-    if (currentDoc) {
-      console.log('[App] current doc content length:', currentDoc.content?.length)
+    try {
+      const docs = await documentApi.getAll()
+      console.log('[App] documentApi.getAll returned', docs.length, 'documents')
+      const currentDoc = docs.find(d => d.id === currentDocId)
+      if (currentDoc) {
+        console.log('[App] current doc content length:', currentDoc.content?.length)
+      }
+      setDocuments(docs)
+    } catch (error) {
+      console.error('[App] refreshDocuments error:', error)
+      showError('刷新文档失败：' + (error.message || '未知错误'))
     }
-    setDocuments(docs)
   }, [setDocuments, currentDocId])
+
+  const refreshCurrentDocument = useCallback(async () => {
+    if (!currentDocId) return
+    
+    console.log('[App] refreshCurrentDocument called for doc:', currentDocId)
+    try {
+      const doc = await documentApi.getById(currentDocId)
+      if (doc) {
+        console.log('[App] documentApi.getById returned doc with content length:', doc.content?.length)
+        setDocuments(prev => prev.map(d => d.id === currentDocId ? doc : d))
+      }
+    } catch (error) {
+      console.error('[App] refreshCurrentDocument error:', error)
+    }
+  }, [currentDocId, setDocuments])
 
   const editorRef = useRef(null)
 
@@ -272,9 +294,9 @@ function App() {
                 docId={currentDocId}
                 currentDocContent={currentDoc?.content}
                 width={aiWorkflowWidth}
-                onUpdateDocuments={refreshDocuments}
+                onUpdateDocuments={refreshCurrentDocument}
                 onOperation={async () => {
-                  await refreshDocuments()
+                  await refreshCurrentDocument()
                 }}
               />
             </>
@@ -306,4 +328,10 @@ function App() {
   )
 }
 
-export default App
+export default function AppWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  )
+}

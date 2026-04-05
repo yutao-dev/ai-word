@@ -22,7 +22,7 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
     confirmChanges,
     rejectChanges,
     clear
-  } = useAIWorkflow({ onOperation })
+  } = useAIWorkflow({ onOperation, onUpdateDocuments })
 
   const logsEndRef = useRef(null)
   const operationsEndRef = useRef(null)
@@ -39,7 +39,7 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
     }
   }, [operationHistory])
 
-  const handleStart = async () => {
+  const handleStart = () => {
     if (!userRequest.trim()) {
       showWarning('请输入您的需求')
       return
@@ -50,7 +50,7 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
     }
 
     try {
-      await startTask(userRequest, docId, currentDocContent)
+      startTask(userRequest, docId, currentDocContent)
     } catch (error) {
       showError('任务执行失败: ' + error.message)
     }
@@ -157,25 +157,44 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
             </div>
             {expanded.taskPlan !== false && (
               <div className="task-plan-container">
-                <div className="task-plan-message">
-                  <strong>任务概述:</strong> {taskPlan.taskMessage}
-                </div>
-                <div className="task-plan-tasks">
-                  {taskPlan.tasks.map((task, i) => (
-                    <div key={i} className={`task-plan-item task-type-${task.type} ${task.isComplete ? 'task-complete' : ''}`}>
-                      <span className="task-status">
-                        {task.isComplete ? '✅' : '⬜'}
-                      </span>
-                      <span className="task-id">{task.id}.</span>
-                      <span className="task-desc">{task.description}</span>
-                      <span className={`task-badge badge-${task.type}`}>
-                        {task.type === 'read' ? '📖 读取' : 
-                         task.type === 'write' ? '✏️ 写入' : 
-                         task.type === 'edit' ? '🔧 编辑' : task.type}
-                      </span>
+                {Array.isArray(taskPlan) ? (
+                  <div className="task-plan-tasks">
+                    {taskPlan.map((task, i) => (
+                      <div key={i} className="task-plan-item task-type-read">
+                        <span className="task-status">⬜</span>
+                        <span className="task-id">{i + 1}.</span>
+                        <span className="task-desc">{task}</span>
+                        <span className="task-badge badge-read">📋 计划</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : taskPlan.tasks ? (
+                  <>
+                    <div className="task-plan-message">
+                      <strong>任务概述:</strong> {taskPlan.taskMessage}
                     </div>
-                  ))}
-                </div>
+                    <div className="task-plan-tasks">
+                      {taskPlan.tasks.map((task, i) => (
+                        <div key={i} className={`task-plan-item task-type-${task.type} ${task.isComplete ? 'task-complete' : ''}`}>
+                          <span className="task-status">
+                            {task.isComplete ? '✅' : '⬜'}
+                          </span>
+                          <span className="task-id">{task.id}.</span>
+                          <span className="task-desc">{task.description}</span>
+                          <span className={`task-badge badge-${task.type}`}>
+                            {task.type === 'read' ? '📖 读取' : 
+                             task.type === 'write' ? '✏️ 写入' : 
+                             task.type === 'edit' ? '🔧 编辑' : task.type}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="task-plan-message">
+                    <strong>任务概述:</strong> {taskPlan}
+                  </div>
+                )}
                 <div className="task-plan-note">
                   💡 注意：这只是 AI 的初步计划，实际执行时可能会根据情况动态调整
                 </div>
@@ -196,11 +215,11 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
             {expanded.logs && (
               <div className="logs-container" ref={logsEndRef}>
                 {logs.map((log, i) => (
-                  <div key={i} className={`log-entry log-${log.level}`}>
+                  <div key={i} className={`log-entry log-${log.type}`}>
                     <span className="log-time">
-                      {new Date(log.timestamp).toLocaleTimeString()}
+                      {new Date().toLocaleTimeString()}
                     </span>
-                    <span className="log-message">{log.message}</span>
+                    <span className="log-message">{log.content}</span>
                   </div>
                 ))}
               </div>
@@ -220,58 +239,37 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
             {expanded.decisions && (
               <div className="decisions-container">
                 {decisions.map((decision, i) => (
-                  <div key={i} className={`decision-entry decision-${decision.type}`}>
+                  <div key={i} className="decision-entry decision-action">
                     <div className="decision-header">
                       <span className="decision-iteration">第 {decision.iteration} 轮</span>
-                      <span className={`decision-type type-${decision.type}`}>
-                        {decision.type === 'action' ? '执行操作' : 
-                         decision.type === 'complete' ? '任务完成' : 
-                         decision.type === 'early_termination' ? '提前终止' : 
-                         decision.type === 'validation_continue' ? '验证后继续' : 
-                         decision.type === 'retry' ? '重试操作' : 
-                         decision.type === 'operation_failed' ? '操作失败' : decision.type}
+                      <span className="decision-type type-action">
+                        {decision.action ? '执行操作' : '思考'}
                       </span>
                     </div>
-                    {decision.message && (
-                      <div className="decision-message">{decision.message}</div>
+                    {decision.thinking && (
+                      <div className="decision-message">{decision.thinking}</div>
                     )}
-                    {decision.operation && (
+                    {decision.action && (
                       <div className="decision-operation">
                         <span className="op-label">操作:</span>
-                        <span className="op-name">{decision.operation.option}</span>
-                        {decision.operation.args && decision.operation.args.length > 0 && (
+                        <span className="op-name">{decision.action.function}</span>
+                        {decision.action.params && (
                           <span className="op-args">
-                            ({decision.operation.args.slice(0, 2).map((arg, idx) => (
+                            ({Object.entries(decision.action.params).map(([key, value], idx) => (
                               <span key={idx} className="op-arg">
-                                {typeof arg === 'string' && arg.length > 30 
-                                  ? arg.substring(0, 30) + '...' 
-                                  : arg}
-                                {idx < decision.operation.args.length - 1 && idx < 1 ? ', ' : ''}
+                                {key}: {typeof value === 'string' && value.length > 30 
+                                  ? value.substring(0, 30) + '...' 
+                                  : JSON.stringify(value)}
+                                {idx < Object.entries(decision.action.params).length - 1 ? ', ' : ''}
                               </span>
-                            ))}
-                            {decision.operation.args.length > 2 && '...'})
+                            ))})
                           </span>
                         )}
                       </div>
                     )}
-                    {decision.type === 'early_termination' && (
-                      <div className="decision-reason">
-                        <span>原因: {decision.reason}</span>
-                      </div>
-                    )}
-                    {decision.validationCount !== undefined && (
-                      <div className="decision-validation-count">
-                        <span>验证次数: {decision.validationCount}</span>
-                      </div>
-                    )}
-                    {decision.retryCount !== undefined && (
-                      <div className="decision-retry-count">
-                        <span>重试次数: {decision.retryCount}</span>
-                      </div>
-                    )}
-                    {decision.error && (
-                      <div className="decision-error">
-                        <span>错误: {decision.error}</span>
+                    {decision.summary && (
+                      <div className="decision-message">
+                        <strong>总结:</strong> {decision.summary}
                       </div>
                     )}
                   </div>
@@ -293,12 +291,12 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
             {expanded.operations && (
               <div className="operations-container" ref={operationsEndRef}>
                 {operationHistory.map((op, i) => (
-                  <div key={i} className={`operation-entry ${op.success ? 'success' : 'error'}`}>
+                  <div key={i} className="operation-entry success">
                     <div className="op-status">
-                      {op.success ? '✅' : '❌'}
+                      ✅
                     </div>
                     <div className="op-details">
-                      {op.success ? '操作成功' : op.error}
+                      {op.action?.function || '操作'} - {op.summary || '执行成功'}
                     </div>
                   </div>
                 ))}
@@ -313,10 +311,16 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
               <span>📊 任务总结</span>
             </div>
             <div className="summary-container">
-              <p><strong>任务用时:</strong> {summary.duration}ms</p>
-              <p><strong>迭代次数:</strong> {summary.iterations}</p>
-              <p><strong>执行操作:</strong> {summary.operations.length} 个</p>
-              <p><strong>状态:</strong> {summary.success ? '✅ 成功' : '❌ 失败'}</p>
+              {typeof summary === 'string' ? (
+                <p>{summary}</p>
+              ) : (
+                <>
+                  <p><strong>任务用时:</strong> {summary.duration}ms</p>
+                  <p><strong>迭代次数:</strong> {summary.iterations}</p>
+                  <p><strong>执行操作:</strong> {summary.operations?.length || 0} 个</p>
+                  <p><strong>状态:</strong> {summary.success ? '✅ 成功' : '❌ 失败'}</p>
+                </>
+              )}
             </div>
           </div>
         )}

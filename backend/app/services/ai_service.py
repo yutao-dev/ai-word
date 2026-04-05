@@ -24,7 +24,8 @@ class AIService:
         if config is None:
             if settings.OPENAI_API_KEY:
                 return AsyncOpenAI(api_key=settings.OPENAI_API_KEY), "openai"
-            raise ValueError("No LLM configuration found")
+            # 返回 None 而不是抛出错误，让上层处理
+            return None, "openai"
 
         provider = config.provider
         if provider == LLMProvider.OPENAI:
@@ -63,6 +64,17 @@ class AIService:
     ) -> ChatResponse:
         config = self._get_default_config()
         client, provider = self._get_client(config)
+        
+        if not client:
+            # 没有配置 API Key，返回一个默认响应
+            return ChatResponse(
+                content="请先配置 LLM API Key 才能使用 AI 功能",
+                model="default",
+                usage={
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0
+                }
+            )
         
         model_name = model or (config.model if config else settings.DEFAULT_MODEL)
         

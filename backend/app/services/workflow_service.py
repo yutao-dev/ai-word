@@ -23,6 +23,12 @@ SYSTEM_PROMPT = """你是一个专业的文档编辑助手。你可以通过调�
 5. updateDocumentContent - 更新整个文档内容
    参数: content (新的文档内容)
 
+执行步骤：
+1. 首先使用 getDocumentById 获取文档内容，了解当前文档的状态
+2. 根据用户需求，规划并执行具体操作
+3. 每次操作后，检查操作结果并决定是否需要继续执行
+4. 当任务完成时，设置 is_complete 为 true
+
 请根据用户需求，规划并执行操作步骤。每次回复请使用JSON格式：
 {
     "thinking": "你的思考过程",
@@ -52,12 +58,7 @@ class WorkflowService:
     ) -> WorkflowResponse:
         document = self.db.query(Document).filter(Document.id == document_id).first()
         if not document:
-            return WorkflowResponse(
-                success=False,
-                message="Document not found",
-                steps=[],
-                iterations=0
-            )
+            raise ValueError("Document not found")
 
         steps = []
         current_content = document.content
@@ -76,7 +77,7 @@ class WorkflowService:
                 decision = {
                     "thinking": response.content,
                     "action": None,
-                    "is_complete": True,
+                    "is_complete": False,
                     "summary": "AI response was not valid JSON"
                 }
 
@@ -106,6 +107,16 @@ class WorkflowService:
                     "role": "user",
                     "content": f"操作结果: {result}\n当前文档内容:\n{current_content[:1000]}..."
                 })
+            else:
+                # 如果没有 action，将 AI 的思考添加到 messages 中，以便 AI 在下一轮中使用
+                messages.append({
+                    "role": "assistant",
+                    "content": response.content
+                })
+                messages.append({
+                    "role": "user",
+                    "content": f"当前文档内容:\n{current_content[:1000]}...\n\n请根据文档内容和我的需求，继续执行操作。"
+                })
 
         self.db.commit()
 
@@ -116,6 +127,98 @@ class WorkflowService:
             final_content=current_content,
             iterations=len(steps)
         )
+
+    async def execute_stream(
+        self,
+        user_request: str,
+        document_id: str,
+        model: Optional[str] = None,
+        max_iterations: int = 10
+    ):
+        """流式执行工作流，实时返回步骤"""
+        document = self.db.query(Document).filter(Document.id == document_id).first()
+        if not document:
+            yield {"type": "error", "message": "Document not found"}
+            return
+
+        current_content = document.content
+        messages = [{"role": "user", "content": user_request}]
+
+        for iteration in range(max_iterations):
+            # 执行 AI 调用
+            response = await self.ai_service.chat_with_system(
+                system_prompt=SYSTEM_PROMPT,
+                messages=messages,
+                model=model
+            )
+
+            # 解析 AI 响应
+            try:
+                decision = json.loads(response.content)
+            except json.JSONDecodeError:
+                decision = {
+                    "thinking": response.content,
+                    "action": None,
+                    "is_complete": False,
+                    "summary": "AI response was not valid JSON"
+                }
+
+            # 构建步骤信息
+            step_info = {
+                "iteration": iteration + 1,
+                "thinking": decision.get("thinking", ""),
+                "plan": decision.get("plan", []),
+                "action": decision.get("action"),
+                "summary": decision.get("summary", "")
+            }
+
+            # 实时返回步骤
+            yield {"type": "step", "step": step_info, "iteration": iteration + 1}
+
+            # 检查是否完成
+            if decision.get("is_complete", False):
+                break
+
+            # 执行操作
+            action = decision.get("action")
+            if action:
+                result = self._execute_action(action, document, current_content)
+                step_info["result"] = result
+                current_content = document.content
+                
+                # 更新消息历史
+                messages.append({
+                    "role": "assistant",
+                    "content": response.content
+                })
+                messages.append({
+                    "role": "user",
+                    "content": f"操作结果: {result}\n当前文档内容:\n{current_content[:1000]}..."
+                })
+            else:
+                # 如果没有 action，将 AI 的思考添加到 messages 中
+                messages.append({
+                    "role": "assistant",
+                    "content": response.content
+                })
+                messages.append({
+                    "role": "user",
+                    "content": f"当前文档内容:\n{current_content[:1000]}...\n\n请根据文档内容和我的需求，继续执行操作。"
+                })
+
+        # 提交数据库更改
+        self.db.commit()
+
+        # 返回最终结果
+        yield {
+            "type": "complete",
+            "result": {
+                "success": True,
+                "message": "Workflow executed successfully",
+                "final_content": current_content,
+                "iterations": iteration + 1
+            }
+        }
 
     def _execute_action(self, action: Dict[str, Any], document: Document, current_content: str) -> str:
         function_name = action.get("function")

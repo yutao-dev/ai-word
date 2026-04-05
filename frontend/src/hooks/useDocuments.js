@@ -1,14 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { 
-  getAllDocuments, 
-  saveDocument, 
-  createDocument, 
-  deleteDocument,
-  migrateFromLocalStorage,
-  getAppState,
-  saveAppState
-} from '../utils/db'
+import { documentApi } from '../services/api'
 import { showSuccess, showError, showWarning } from '../utils/toast'
+
+// 本地存储用于保存当前文档ID（临时方案，后续可迁移到后端）
+const getCurrentDocId = () => localStorage.getItem('currentDocId')
+const saveCurrentDocId = (docId) => localStorage.setItem('currentDocId', docId)
 
 export const useDocuments = () => {
   const [documents, setDocuments] = useState([])
@@ -18,12 +14,10 @@ export const useDocuments = () => {
   useEffect(() => {
     const initDocuments = async () => {
       try {
-        await migrateFromLocalStorage()
-        
-        const docs = await getAllDocuments()
+        const docs = await documentApi.getAll()
         setDocuments(docs)
         
-        const savedDocId = await getAppState('currentDocId')
+        const savedDocId = getCurrentDocId()
         const validDocId = savedDocId && docs.find(d => d.id === savedDocId)
           ? savedDocId
           : docs[0]?.id
@@ -33,7 +27,7 @@ export const useDocuments = () => {
         }
       } catch (error) {
         console.error('Init documents error:', error)
-        showError('加载文档失败')
+        showError('加载文档失败：' + (error.message || '未知错误'))
       } finally {
         setIsLoading(false)
       }
@@ -44,7 +38,7 @@ export const useDocuments = () => {
 
   useEffect(() => {
     if (currentDocId) {
-      saveAppState('currentDocId', currentDocId)
+      saveCurrentDocId(currentDocId)
     }
   }, [currentDocId])
 
@@ -56,14 +50,15 @@ export const useDocuments = () => {
     const doc = documents.find(d => d.id === currentDocId)
     if (!doc) return
     
-    const result = await saveDocument({ ...doc, content })
-    
-    if (result.success) {
+    try {
+      const updatedDoc = await documentApi.update(currentDocId, { content })
       setDocuments(prev => prev.map(d => 
-        d.id === currentDocId ? result.doc : d
+        d.id === currentDocId ? updatedDoc : d
       ))
-    } else {
-      showError('保存失败：' + result.error)
+      // showSuccess('保存成功')
+    } catch (error) {
+      console.error('Update document error:', error)
+      showError('保存失败：' + (error.message || '未知错误'))
     }
   }, [currentDocId, documents])
 
@@ -73,23 +68,22 @@ export const useDocuments = () => {
       return null
     }
     
-    const result = await createDocument(title)
-    
-    if (result.success) {
-      setDocuments(prev => [result.doc, ...prev])
-      setCurrentDocId(result.doc.id)
+    try {
+      const newDoc = await documentApi.create({ title })
+      setDocuments(prev => [newDoc, ...prev])
+      setCurrentDocId(newDoc.id)
       showSuccess('文档创建成功')
-      return result.doc
-    } else {
-      showError('创建失败：' + result.error)
+      return newDoc
+    } catch (error) {
+      console.error('Create document error:', error)
+      showError('创建失败：' + (error.message || '未知错误'))
       return null
     }
   }, [])
 
   const deleteDoc = useCallback(async (docId) => {
-    const result = await deleteDocument(docId)
-    
-    if (result.success) {
+    try {
+      await documentApi.delete(docId)
       setDocuments(prev => prev.filter(d => d.id !== docId))
       
       if (currentDocId === docId) {
@@ -101,9 +95,10 @@ export const useDocuments = () => {
       
       showSuccess('文档已删除')
       return { success: true }
-    } else {
-      showWarning(result.error)
-      return { success: false, error: result.error }
+    } catch (error) {
+      console.error('Delete document error:', error)
+      showWarning('删除失败：' + (error.message || '未知错误'))
+      return { success: false, error: error.message || '未知错误' }
     }
   }, [currentDocId, documents])
 
@@ -116,12 +111,39 @@ export const useDocuments = () => {
     })
   }, [])
 
-  const selectDocument = useCallback((docId) => {
-    const doc = documents.find(d => d.id === docId)
-    if (doc) {
-      setCurrentDocId(docId)
+  const selectDocument = useCallback(async (docId) => {
+    try {
+      // 调用后端 API 获取文档的最新内容
+      const doc = await documentApi.getById(docId)
+      if (doc) {
+        // 更新本地文档列表中的对应文档
+        setDocuments(prev => prev.map(d => d.id === docId ? doc : d))
+        // 设置当前文档 ID
+        setCurrentDocId(docId)
+      }
+    } catch (error) {
+      console.error('Select document error:', error)
+      // 如果 API 调用失败，使用本地存储的文档
+      const doc = documents.find(d => d.id === docId)
+      if (doc) {
+        setCurrentDocId(docId)
+      }
     }
   }, [documents])
+
+  const refreshCurrentDocument = useCallback(async () => {
+    if (!currentDocId) return
+    
+    try {
+      const doc = await documentApi.getById(currentDocId)
+      if (doc) {
+        setDocuments(prev => prev.map(d => d.id === currentDocId ? doc : d))
+        console.log('Current document refreshed:', doc.title)
+      }
+    } catch (error) {
+      console.error('Refresh current document error:', error)
+    }
+  }, [currentDocId])
 
   return {
     documents,
@@ -133,6 +155,7 @@ export const useDocuments = () => {
     updateCurrentDoc,
     createDocument: createNewDocument,
     deleteDocument: deleteDoc,
-    formatDate
+    formatDate,
+    refreshCurrentDocument
   }
 }

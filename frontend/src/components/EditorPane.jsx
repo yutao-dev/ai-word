@@ -80,6 +80,36 @@ const EditorPane = forwardRef(({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [undo, redo])
 
+  // 定时保存功能 - 每5秒保存一次当前文档
+  useEffect(() => {
+    let lastSavedContent = localContent
+    let saveTimer
+
+    const saveInterval = 5000 // 5秒
+
+    const saveContent = async () => {
+      if (localContent !== lastSavedContent && currentDoc?.id) {
+        try {
+          await onUpdateContent(localContent)
+          lastSavedContent = localContent
+          console.log('[EditorPane] 定时保存成功')
+        } catch (error) {
+          console.error('[EditorPane] 定时保存失败:', error)
+        }
+      }
+    }
+
+    // 启动定时器
+    saveTimer = setInterval(saveContent, saveInterval)
+
+    // 组件卸载时清除定时器
+    return () => {
+      if (saveTimer) {
+        clearInterval(saveTimer)
+      }
+    }
+  }, [localContent, currentDoc?.id, onUpdateContent])
+
   const handleContentChange = useCallback((e) => {
     setLocalContent(e.target.value)
   }, [setLocalContent])
