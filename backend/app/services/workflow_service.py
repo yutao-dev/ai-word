@@ -1,53 +1,206 @@
 import json
+import os
 from typing import List, Dict, Any, Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, attributes
 from .ai_service import AIService
+from .skill.skill_service import SkillService
 from ..models.document import Document
 from ..models.ai_schemas import WorkflowResponse
 
-SYSTEM_PROMPT = """你是一个专业的文档编辑助手。你可以通过调用函数来编辑文档。
+# 获取技能文档目录
+SKILLS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'skills')
 
-可用的函数：
-1. getDocumentById - 获取文档内容
+SYSTEM_PROMPT = """你是一个专业的文档编辑助手，可以通过调用 MCP 函数来操作文档。
+
+## 📋 可用函数列表
+
+### 文档管理
+1. **createDocument** - 创建新文档
+   参数: title (标题), content (内容，可选)
+
+2. **getAllDocument** - 获取所有文档列表
+   参数: 无
+
+3. **getDocumentById** - 获取指定文档内容
    参数: document_id (文档ID)
-   
-2. insertEnd - 在文档末尾追加内容
-   参数: content (要追加的内容)
-   
-3. deleteByRange - 删除指定行范围
-   参数: start_line, end_line (行号从1开始)
-   
-4. deleteAndSwap - 删除指定行并替换为新内容
-   参数: start_line, end_line, new_content
-   
-5. updateDocumentContent - 更新整个文档内容
-   参数: content (新的文档内容)
 
-执行步骤：
-1. 首先使用 getDocumentById 获取文档内容，了解当前文档的状态
-2. 根据用户需求，规划并执行具体操作
-3. 每次操作后，检查操作结果并决定是否需要继续执行
-4. 当任务完成时，设置 is_complete 为 true
+### 内容搜索与定位
+4. **searchInDocument** - 在文档中搜索关键词
+   参数: document_id, keyword, case_sensitive (可选), use_regex (可选), context_lines (可选)
 
-请根据用户需求，规划并执行操作步骤。每次回复请使用JSON格式：
+5. **findAndReplace** - 查找并替换文本
+   参数: document_id, find_text, replace_text, replace_all (可选), case_sensitive (可选)
+
+6. **getDocumentOutline** - 获取文档大纲（标题树）
+   参数: document_id
+
+7. **getSectionByHeading** - 根据标题获取章节内容
+   参数: document_id, heading_text (支持模糊匹配)
+
+### 内容插入
+8. **insertEnd** - 在文档末尾追加内容
+   参数: document_id, content
+
+9. **insertAt** - 在指定位置插入内容
+   参数: document_id, position_type (line/heading/keyword/start/end), position_value, content
+
+10. **insertAfterHeading** - 在指定标题后插入内容
+    参数: document_id, heading_text, content, heading_level (可选)
+
+11. **insertParagraph** - 智能段落插入
+    参数: document_id, content, after_line (可选), before_line (可选)
+
+### 内容修改
+12. **deleteByRange** - 删除指定行范围
+    参数: document_id, start_line, end_line (行号从1开始)
+
+13. **deleteAndSwap** - 删除指定行并替换为新内容
+    参数: document_id, start_line, end_line, new_content
+
+14. **updateDocumentContent** - 更新整个文档内容
+    参数: document_id, content
+
+### 高级操作
+15. **moveSection** - 移动章节到指定位置
+    参数: document_id, from_heading, to_position (line/heading/start/end), to_position_value
+
+16. **batchOperations** - 批量执行多个操作
+    参数: document_id, operations (JSON数组), stop_on_error (可选)
+
+### 信息提取
+17. **getDocumentStats** - 获取文档统计信息
+    参数: document_id
+
+18. **extractKeyInfo** - 提取文档关键信息
+    参数: document_id, extract_type (links/images/code/tables/headings)
+
+### 统计查询
+19. **getTokenUsage** - 获取Token使用统计
+    参数: workflow_id (可选)
+
+## 🚀 首轮执行策略（重要！）
+
+**第一步必须执行**: 使用 **getAllDocument** 获取所有文档列表
+
+然后根据结果决定下一步：
+- **如果已有文档**: 使用 **getDocumentById** 获取文档内容，在此基础上进行修改
+- **如果没有文档或用户明确要求创建新文档**: 使用 **createDocument** 创建新文档
+
+⚠️ 不要在没有获取文档信息的情况下直接创建新文档！
+
+## 🎯 执行策略
+
+1. **理解需求**: 仔细分析用户的请求，确定需要执行的操作
+2. **获取上下文**: 使用 getAllDocument 和 getDocumentById 了解文档状态
+3. **规划步骤**: 制定清晰的操作计划
+4. **执行操作**: 按计划调用函数，每次操作后检查结果
+5. **验证完成**: 确认任务是否完成，必要时继续优化
+
+## ⚠️ 重要提醒
+
+- **获取文档内容不等于完成任务！** 如果用户要求修改、重写、新增内容，必须调用相应的修改函数
+- **不要在获取文档后就设置 is_complete=true**！只有当文档内容确实已经被修改并验证后，才能设置 is_complete=true
+- **常见错误**: 调用 getDocumentById 后就以为任务完成了，这是错误的！必须继续执行修改操作
+
+## 💡 使用技巧
+
+- **首轮必做**: 先调用 getAllDocument 了解当前有哪些文档
+- **跨文档操作**: 可以操作任意文档，只需传入正确的 document_id
+- 使用 **searchInDocument** 快速定位内容位置
+- 使用 **getDocumentOutline** 理解文档结构后再操作
+- 使用 **insertAt** 可以精确定位插入位置（支持行号、标题、关键词）
+- 使用 **findAndReplace** 批量替换文本
+- 使用 **batchOperations** 一次执行多个修改操作
+
+## 📤 响应格式
+
+请使用以下 JSON 格式回复：
 {
-    "thinking": "你的思考过程",
+    "thinking": "你的思考过程和分析",
     "plan": ["步骤1", "步骤2", ...],
     "action": {
         "function": "函数名",
-        "params": {参数}
+        "params": {"参数名": "参数值", ...}
     },
     "is_complete": false,
     "summary": "当前步骤说明"
 }
 
-如果任务完成，设置 is_complete 为 true。"""
+当任务完成时，设置 is_complete 为 true。如果不需要执行操作（如仅查询信息），也可以设置 is_complete 为 true 并在 summary 中返回结果。"""
+
+
+COMPACT_SYSTEM_PROMPT = """你是一个专业的文档编辑助手，可以通过调用 MCP 函数来操作文档。
+
+## 可用函数
+createDocument, getAllDocument, getDocumentById, searchInDocument, findAndReplace,
+getDocumentOutline, getSectionByHeading, insertEnd, insertAt, insertAfterHeading,
+insertParagraph, deleteByRange, deleteAndSwap, updateDocumentContent, moveSection,
+batchOperations, getDocumentStats, extractKeyInfo, getTokenUsage
+
+## 首轮策略（重要！）
+**第一步必须执行**: 使用 **getAllDocument** 获取所有文档列表
+
+## 重要提醒
+- **获取文档内容不等于完成任务！** 必须调用修改函数
+- **不要在获取文档后就设置 is_complete=true**！
+- 只有当文档内容确实已经被修改并验证后，才能设置 is_complete=true
+
+## 响应格式
+{
+    "thinking": "思考过程",
+    "plan": ["步骤"],
+    "action": {"function": "函数名", "params": {...}},
+    "is_complete": false,
+    "summary": "说明"
+}
+
+注: 详细函数说明请参考首轮系统提示词。"""
+
+
+def build_context_message(current_doc_id: str, documents: list, iteration: int = 1) -> str:
+    """构建文档上下文消息，包含当前文档列表"""
+    if iteration == 1:
+        # 首轮发送完整文档列表和当前文档信息
+        doc_list = "\n".join([
+            f"  - ID: {doc.id} | 标题: {doc.title}" + (" (当前文档)" if doc.id == current_doc_id else "")
+            for doc in documents
+        ])
+        
+        current_doc = next((d for d in documents if d.id == current_doc_id), None)
+        current_doc_info = f"当前打开的文档: {current_doc.title} (ID: {current_doc_id})" if current_doc else f"当前打开的文档ID: {current_doc_id}"
+        
+        return f"""## 📁 当前文档上下文
+
+{current_doc_info}
+
+所有文档列表:
+{doc_list}
+
+⚠️ 操作文档时，请确保传入正确的 document_id 参数！"""
+    else:
+        # 后续轮次只发送文档引用
+        current_doc = next((d for d in documents if d.id == current_doc_id), None)
+        current_doc_title = current_doc.title if current_doc else "未知"
+        return f"""## 📁 当前文档上下文
+
+当前文档: {current_doc_title} (ID: {current_doc_id})
+
+📝 注: 完整文档内容已在首轮提供，后续操作请直接使用文档 ID 进行引用。"""
+
+def manage_context(messages: list, max_history: int = 3) -> list:
+    """管理上下文，限制历史对话长度"""
+    # 只保留最近几轮的对话
+    if len(messages) > max_history * 2:  # 每轮包含用户和助手消息
+        messages = messages[-max_history * 2:]
+    return messages
 
 
 class WorkflowService:
     def __init__(self, db: Session):
         self.db = db
+        self.workflow_id = None
         self.ai_service = AIService(db)
+        self.skill_service = SkillService(SKILLS_DIR)
 
     async def execute(
         self,
@@ -60,20 +213,47 @@ class WorkflowService:
         if not document:
             raise ValueError("Document not found")
 
+        import uuid
+        self.workflow_id = str(uuid.uuid4())
+        workflow_ai_service = AIService(self.db, workflow_id=self.workflow_id)
+
         steps = []
         current_content = document.content
         messages = [{"role": "user", "content": user_request}]
 
         for iteration in range(max_iterations):
-            response = await self.ai_service.chat_with_system(
-                system_prompt=SYSTEM_PROMPT,
+            docs = self.db.query(Document).filter(Document.is_deleted == False).all()
+            context_message = build_context_message(document_id, docs, iteration + 1)
+
+            # 使用 Skill 服务生成系统提示词
+            system_prompt = self.skill_service.process_request(user_request, model, iteration + 1)
+            full_system_prompt = system_prompt + "\n\n" + context_message
+
+            response = await workflow_ai_service.chat_with_system(
+                system_prompt=full_system_prompt,
                 messages=messages,
                 model=model
             )
 
             try:
-                decision = json.loads(response.content)
-            except json.JSONDecodeError:
+                # 尝试解析 JSON，处理 Markdown 代码块格式
+                json_text = response.content.strip()
+                
+                # 移除 Markdown 代码块标记
+                if json_text.startswith('```json'):
+                    json_text = json_text[7:]  # 移除 ```json
+                elif json_text.startswith('```'):
+                    json_text = json_text[3:]  # 移除 ```
+                
+                if json_text.endswith('```'):
+                    json_text = json_text[:-3]  # 移除结尾的 ```
+                
+                json_text = json_text.strip()
+                
+                decision = json.loads(json_text)
+                print(f"[execute_stream] AI 返回 JSON: {json.dumps(decision, ensure_ascii=False)[:500]}")
+            except json.JSONDecodeError as e:
+                print(f"[execute_stream] JSON 解析错误: {e}, 原始内容: {response.content[:500]}")
                 decision = {
                     "thinking": response.content,
                     "action": None,
@@ -86,8 +266,23 @@ class WorkflowService:
                 "thinking": decision.get("thinking", ""),
                 "plan": decision.get("plan", []),
                 "action": decision.get("action"),
-                "summary": decision.get("summary", "")
+                "summary": decision.get("summary", ""),
+                "is_complete": decision.get("is_complete", False)
             }
+            
+            print(f"[execute_stream] 第 {iteration + 1} 轮, is_complete={decision.get('is_complete', False)}, has_action={action is not None}")
+            
+            action = decision.get("action")
+            modification_functions = {
+                'updateDocumentContent', 'insertEnd', 'insertAt', 'insertAfterHeading',
+                'insertParagraph', 'deleteByRange', 'deleteAndSwap', 'findAndReplace',
+                'moveSection', 'createDocument'
+            }
+            has_modification = action and action.get('function') in modification_functions
+            
+            if decision.get("is_complete", False) and not has_modification:
+                print(f"[execute_stream] AI 标记为完成但没有执行修改操作，忽略并继续")
+                decision["is_complete"] = False
             steps.append(step_info)
 
             if decision.get("is_complete", False):
@@ -95,9 +290,15 @@ class WorkflowService:
 
             action = decision.get("action")
             if action:
-                result = self._execute_action(action, document, current_content)
+                result = self._execute_action(action, document_id)
                 step_info["result"] = result
                 current_content = document.content
+                
+                # 如果执行了创建文档操作，自动标记任务完成
+                func_name = action.get("function")
+                if func_name == "createDocument":
+                    decision["is_complete"] = True
+                    has_modification = True
                 
                 messages.append({
                     "role": "assistant",
@@ -141,20 +342,38 @@ class WorkflowService:
             yield {"type": "error", "message": "Document not found"}
             return
 
-        current_content = document.content
         messages = [{"role": "user", "content": user_request}]
 
         for iteration in range(max_iterations):
-            # 执行 AI 调用
+            docs = self.db.query(Document).filter(Document.is_deleted == False).all()
+            context_message = build_context_message(document_id, docs, iteration + 1)
+
+            # 使用 Skill 服务生成系统提示词
+            system_prompt = self.skill_service.process_request(user_request, model, iteration + 1)
+            full_system_prompt = system_prompt + "\n\n" + context_message
+
             response = await self.ai_service.chat_with_system(
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=full_system_prompt,
                 messages=messages,
                 model=model
             )
 
-            # 解析 AI 响应
             try:
-                decision = json.loads(response.content)
+                # 尝试解析 JSON，处理 Markdown 代码块格式
+                json_text = response.content.strip()
+                
+                # 移除 Markdown 代码块标记
+                if json_text.startswith('```json'):
+                    json_text = json_text[7:]  # 移除 ```json
+                elif json_text.startswith('```'):
+                    json_text = json_text[3:]  # 移除 ```
+                
+                if json_text.endswith('```'):
+                    json_text = json_text[:-3]  # 移除结尾的 ```
+                
+                json_text = json_text.strip()
+                
+                decision = json.loads(json_text)
             except json.JSONDecodeError:
                 decision = {
                     "thinking": response.content,
@@ -163,7 +382,6 @@ class WorkflowService:
                     "summary": "AI response was not valid JSON"
                 }
 
-            # 构建步骤信息
             step_info = {
                 "iteration": iteration + 1,
                 "thinking": decision.get("thinking", ""),
@@ -172,86 +390,631 @@ class WorkflowService:
                 "summary": decision.get("summary", "")
             }
 
-            # 实时返回步骤
             yield {"type": "step", "step": step_info, "iteration": iteration + 1}
 
-            # 检查是否完成
+            action = decision.get("action")
+            modification_functions = {
+                'updateDocumentContent', 'insertEnd', 'insertAt', 'insertAfterHeading',
+                'insertParagraph', 'deleteByRange', 'deleteAndSwap', 'findAndReplace',
+                'moveSection', 'createDocument'
+            }
+            has_modification = action and action.get('function') in modification_functions
+            
+            if action:
+                print(f"[execute_stream] 执行 action: {json.dumps(action, ensure_ascii=False)[:300]}")
+                result = self._execute_action(action, document_id)
+                print(f"[execute_stream] action 执行结果: {result[:200] if len(result) > 200 else result}")
+                step_info["result"] = result
+                
+                # 如果执行了创建文档操作，自动标记任务完成
+                func_name = action.get("function")
+                if func_name == "createDocument":
+                    decision["is_complete"] = True
+                    has_modification = True
+                
+                self.db.expire_all()
+                document = self.db.query(Document).filter(Document.id == document_id).first()
+                print(f"[execute_stream] 刷新后文档内容长度: {len(document.content) if document else 'N/A'}")
+                
+                messages.append({
+                    "role": "assistant",
+                    "content": response.content
+                })
+                messages = manage_context(messages)
+                messages.append({
+                    "role": "user",
+                    "content": f"操作结果: {result}"
+                })
+                messages = manage_context(messages)
+                print(f"[execute_stream] 第 {iteration + 1} 轮执行完成")
+            else:
+                print(f"[execute_stream] AI 没有返回 action，继续等待")
+                messages.append({
+                    "role": "assistant",
+                    "content": response.content
+                })
+                messages = manage_context(messages)
+                messages.append({
+                    "role": "user",
+                    "content": "请继续执行操作。"
+                })
+                messages = manage_context(messages)
+            
             if decision.get("is_complete", False):
+                if has_modification:
+                    print(f"[execute_stream] 修改操作已执行，现在退出循环")
+                else:
+                    print(f"[execute_stream] AI 标记为完成且没有修改操作，退出循环")
                 break
 
-            # 执行操作
-            action = decision.get("action")
-            if action:
-                result = self._execute_action(action, document, current_content)
-                step_info["result"] = result
-                current_content = document.content
-                
-                # 更新消息历史
-                messages.append({
-                    "role": "assistant",
-                    "content": response.content
-                })
-                messages.append({
-                    "role": "user",
-                    "content": f"操作结果: {result}\n当前文档内容:\n{current_content[:1000]}..."
-                })
-            else:
-                # 如果没有 action，将 AI 的思考添加到 messages 中
-                messages.append({
-                    "role": "assistant",
-                    "content": response.content
-                })
-                messages.append({
-                    "role": "user",
-                    "content": f"当前文档内容:\n{current_content[:1000]}...\n\n请根据文档内容和我的需求，继续执行操作。"
-                })
-
-        # 提交数据库更改
         self.db.commit()
 
-        # 返回最终结果
+        current_doc = self.db.query(Document).filter(Document.id == document_id).first()
         yield {
             "type": "complete",
             "result": {
                 "success": True,
                 "message": "Workflow executed successfully",
-                "final_content": current_content,
-                "iterations": iteration + 1
+                "final_content": current_doc.content if current_doc else "",
+                "iterations": iteration + 1,
+                "workflow_id": self.workflow_id
             }
         }
 
-    def _execute_action(self, action: Dict[str, Any], document: Document, current_content: str) -> str:
+    ACTION_DESCRIPTIONS = {
+        "getDocumentById": "查询文档",
+        "getAllDocument": "获取文档列表",
+        "createDocument": "创建文档",
+        "updateDocumentContent": "修改文档",
+        "insertEnd": "追加内容",
+        "insertAt": "插入内容",
+        "insertAfterHeading": "在标题后插入",
+        "insertParagraph": "插入段落",
+        "deleteByRange": "删除内容",
+        "deleteAndSwap": "删除并替换",
+        "findAndReplace": "查找替换",
+        "moveSection": "移动章节",
+        "searchInDocument": "搜索文档",
+        "getDocumentOutline": "获取大纲",
+        "getSectionByHeading": "获取章节",
+        "getTokenUsage": "查询Token使用",
+        "getDocumentStats": "获取文档统计",
+        "extractKeyInfo": "提取关键信息",
+        "batchOperations": "批量执行操作"
+    }
+
+    def _get_action_description(self, function_name: str, target_title: str = None) -> str:
+        desc = self.ACTION_DESCRIPTIONS.get(function_name, function_name)
+        if target_title:
+            return f"正在{desc}《{target_title}》"
+        return f"正在{desc}"
+
+    async def execute_stream_v2(
+        self,
+        user_request: str,
+        document_id: str,
+        model: Optional[str] = None,
+        max_iterations: int = 10
+    ):
+        """流式执行工作流 v2 - 实时展示思考和操作进度"""
+        document = self.db.query(Document).filter(Document.id == document_id).first()
+        if not document:
+            yield {"type": "error", "message": "Document not found"}
+            return
+
+        import uuid
+        self.workflow_id = str(uuid.uuid4())
+        workflow_ai_service = AIService(self.db, workflow_id=self.workflow_id)
+
+        messages = [{"role": "user", "content": user_request}]
+        already_complete = False
+
+        for iteration in range(max_iterations):
+            print(f"[execute_stream_v2] 开始第 {iteration + 1} 轮迭代")
+            docs = self.db.query(Document).filter(Document.is_deleted == False).all()
+            context_message = build_context_message(document_id, docs, iteration + 1)
+
+            # 使用 Skill 服务生成系统提示词
+            print(f"[execute_stream_v2] 正在生成系统提示词...")
+            system_prompt = self.skill_service.process_request(user_request, model, iteration + 1)
+            full_system_prompt = system_prompt + "\n\n" + context_message
+            print(f"[execute_stream_v2] 系统提示词长度: {len(full_system_prompt)}")
+
+            yield {
+                "type": "thinking",
+                "content": "正在思考...",
+                "iteration": iteration + 1
+            }
+
+            response_text = ""
+            thinking_streamed = False
+            print(f"[execute_stream_v2] 正在调用 AI 服务...")
+            async for token in workflow_ai_service.chat_with_system_stream(
+                system_prompt=full_system_prompt,
+                messages=messages,
+                model=model
+            ):
+                if token.get("type") == "error":
+                    print(f"[execute_stream_v2] AI 服务错误: {token.get('content')}")
+                    yield token
+                    return
+                if token.get("type") == "token":
+                    response_text += token["content"]
+                    if not thinking_streamed:
+                        yield {
+                            "type": "thinking",
+                            "content": "正在思考...",
+                            "iteration": iteration + 1
+                        }
+                        thinking_streamed = True
+
+            print(f"[execute_stream_v2] AI 服务返回结果: {response_text[:300]}...")
+
+            yield {
+                "type": "thinking_done",
+                "content": response_text,
+                "iteration": iteration + 1
+            }
+
+            try:
+                # 尝试解析 JSON，处理 Markdown 代码块格式
+                json_text = response_text.strip()
+                
+                # 移除 Markdown 代码块标记
+                if json_text.startswith('```json'):
+                    json_text = json_text[7:]  # 移除 ```json
+                elif json_text.startswith('```'):
+                    json_text = json_text[3:]  # 移除 ```
+                
+                if json_text.endswith('```'):
+                    json_text = json_text[:-3]  # 移除结尾的 ```
+                
+                json_text = json_text.strip()
+                
+                decision = json.loads(json_text)
+                print(f"[execute_stream_v2] 解析 JSON 成功: {json.dumps(decision, ensure_ascii=False)[:300]}...")
+            except json.JSONDecodeError as e:
+                print(f"[execute_stream_v2] JSON 解析错误: {e}")
+                print(f"[execute_stream_v2] 原始响应: {response_text[:500]}...")
+                decision = {
+                    "thinking": response_text,
+                    "action": None,
+                    "is_complete": False,
+                    "summary": "AI response was not valid JSON"
+                }
+
+            action = decision.get("action")
+            modification_functions = {
+                'updateDocumentContent', 'insertEnd', 'insertAt', 'insertAfterHeading',
+                'insertParagraph', 'deleteByRange', 'deleteAndSwap', 'findAndReplace',
+                'moveSection', 'createDocument'
+            }
+            has_modification = action and action.get('function') in modification_functions
+            print(f"[execute_stream_v2] 分析结果: action={action is not None}, is_complete={decision.get('is_complete', False)}, has_modification={has_modification}")
+
+            if action:
+                func_name = action.get("function")
+                params = action.get("params", {})
+                target_doc_id = params.get("document_id", document_id)
+                target_doc = self.db.query(Document).filter(Document.id == target_doc_id).first()
+                target_title = target_doc.title if target_doc else target_doc_id
+
+                print(f"[execute_stream_v2] 准备执行操作: {func_name}，目标: {target_title}")
+
+                yield {
+                    "type": "action_start",
+                    "function": func_name,
+                    "target": target_title,
+                    "description": self._get_action_description(func_name, target_title),
+                    "iteration": iteration + 1
+                }
+
+                result = self._execute_action(action, document_id)
+                print(f"[execute_stream_v2] 操作执行结果: {result[:200] if len(result) > 200 else result}")
+
+                yield {
+                    "type": "action_complete",
+                    "function": func_name,
+                    "target": target_title,
+                    "result": result,
+                    "iteration": iteration + 1
+                }
+
+                self.db.expire_all()
+                document = self.db.query(Document).filter(Document.id == document_id).first()
+                print(f"[execute_stream_v2] 刷新后文档内容长度: {len(document.content) if document else 'N/A'}")
+
+                messages.append({"role": "assistant", "content": response_text})
+                messages = manage_context(messages)
+                messages.append({"role": "user", "content": f"操作结果: {result}"})
+                messages = manage_context(messages)
+                
+                # 如果执行了创建文档操作，自动标记任务完成
+                if func_name == "createDocument":
+                    print(f"[execute_stream_v2] 执行了创建文档操作，自动标记任务完成")
+                    decision["is_complete"] = True
+                    has_modification = True
+            else:
+                print(f"[execute_stream_v2] 没有操作，继续执行下一轮")
+                messages.append({"role": "assistant", "content": response_text})
+                messages = manage_context(messages)
+                messages.append({"role": "user", "content": "请继续执行操作。"})
+                messages = manage_context(messages)
+
+            if decision.get("is_complete", False):
+                print(f"[execute_stream_v2] 任务标记为完成，has_modification={has_modification}")
+                if has_modification:
+                    print(f"[execute_stream_v2] 有修改操作，返回完成结果")
+                    yield {
+                        "type": "complete",
+                        "result": {
+                            "success": True,
+                            "message": "任务已完成",
+                            "final_content": document.content if document else "",
+                            "iterations": iteration + 1,
+                            "workflow_id": self.workflow_id
+                        }
+                    }
+                    already_complete = True
+                else:
+                    print(f"[execute_stream_v2] 没有修改操作，退出循环")
+                break
+
+        if not already_complete:
+            print(f"[execute_stream_v2] 已达最大迭代次数，返回完成结果")
+            self.db.commit()
+            yield {
+                "type": "complete",
+                "result": {
+                    "success": True,
+                    "message": "已达最大迭代次数",
+                    "final_content": document.content if document else "",
+                    "iterations": iteration + 1,
+                    "workflow_id": self.workflow_id
+                }
+            }
+
+    def _execute_action(self, action: Dict[str, Any], current_doc_id: str) -> str:
+        import re
         function_name = action.get("function")
         params = action.get("params", {})
+        
+        target_doc_id = params.get("document_id", current_doc_id)
+        
+        print(f"[_execute_action] 开始执行函数: {function_name}, target_doc_id={target_doc_id}, current_doc_id={current_doc_id}")
+        print(f"[_execute_action] 参数: {json.dumps(params, ensure_ascii=False)[:500]}")
+        
+        if function_name == "createDocument":
+            from ..models.document import Document as DocModel
+            new_doc = DocModel(
+                title=params.get("title", "新文档"),
+                content=params.get("content", "")
+            )
+            self.db.add(new_doc)
+            self.db.commit()
+            self.db.refresh(new_doc)
+            print(f"[createDocument] 已创建新文档: {new_doc.title} (ID: {new_doc.id})")
+            print(f"[createDocument] 文档内容长度: {len(new_doc.content) if new_doc.content else 0}")
+            return f"已创建新文档: {params.get('title', '新文档')} (ID: {new_doc.id})"
+
+        elif function_name == "getAllDocument":
+            docs = self.db.query(Document).filter(Document.is_deleted == False).all()
+            doc_list = [{"id": d.id, "title": d.title} for d in docs]
+            print(f"[getAllDocument] 找到 {len(docs)} 个文档")
+            return f"共有 {len(docs)} 个文档: {json.dumps(doc_list, ensure_ascii=False)}"
+
+        elif function_name == "getTokenUsage":
+            from ..models.document import TokenUsage
+            stats = self.db.query(TokenUsage).all()
+            total_tokens = sum(s.total_tokens for s in stats)
+            print(f"[getTokenUsage] 找到 {len(stats)} 条记录，总计 {total_tokens} tokens")
+            return f"Token 使用统计: 共 {len(stats)} 次请求, 总计 {total_tokens} tokens"
+
+        document = self.db.query(Document).filter(Document.id == target_doc_id, Document.is_deleted == False).first()
+        if not document:
+            print(f"[_execute_action] 错误: 未找到文档 ID: {target_doc_id}")
+            return f"错误: 未找到文档 ID: {target_doc_id}"
+        
+        print(f"[_execute_action] 找到文档: {document.title}, 当前内容长度: {len(document.content or '')}")
 
         lines = document.content.split("\n") if document.content else []
 
         if function_name == "getDocumentById":
-            return f"文档内容 ({len(lines)} 行): {document.content[:500]}..."
+            return f"文档 '{document.title}' (ID: {target_doc_id}) 内容 ({len(lines)} 行):\n{document.content[:1000]}{'...' if len(document.content or '') > 1000 else ''}"
+
+        elif function_name == "searchInDocument":
+            keyword = params.get("keyword", "")
+            if not keyword:
+                return "错误: searchInDocument 需要 keyword 参数"
+            case_sensitive = params.get("case_sensitive", False)
+            matches = []
+            for i, line in enumerate(lines, 1):
+                if keyword in line if case_sensitive else keyword.lower() in line.lower():
+                    matches.append(f"第{i}行: {line[:100]}")
+            return f"在文档 '{document.title}' 中找到 {len(matches)} 处匹配:\n" + "\n".join(matches[:10])
+
+        elif function_name == "findAndReplace":
+            find_text = params.get("find_text", "")
+            replace_text = params.get("replace_text", "")
+            if not find_text:
+                return "错误: findAndReplace 需要 find_text 参数"
+            replace_all = params.get("replace_all", False)
+            if replace_all:
+                count = document.content.count(find_text)
+                document.content = document.content.replace(find_text, replace_text)
+            else:
+                document.content = document.content.replace(find_text, replace_text, 1)
+                count = 1
+            attributes.flag_modified(document, 'content')
+            self.db.commit()
+            return f"已在文档 '{document.title}' 中替换 {count} 处文本"
+
+        elif function_name == "getDocumentOutline":
+            headings = []
+            for i, line in enumerate(lines, 1):
+                match = re.match(r'^(#{1,6})\s+(.+)$', line)
+                if match:
+                    level = len(match.group(1))
+                    text = match.group(2).strip()
+                    headings.append(f"{'  ' * (level - 1)}H{level}: {text} (第{i}行)")
+            return f"文档 '{document.title}' 大纲:\n" + "\n".join(headings) if headings else f"文档 '{document.title}' 没有标题"
+
+        elif function_name == "getSectionByHeading":
+            heading_text = params.get("heading_text", "")
+            if not heading_text:
+                return "错误: getSectionByHeading 需要 heading_text 参数"
+            start_line = None
+            end_line = len(lines)
+            heading_level = None
+            for i, line in enumerate(lines):
+                match = re.match(r'^(#{1,6})\s+(.+)$', line)
+                if match:
+                    level = len(match.group(1))
+                    text = match.group(2).strip()
+                    if start_line is None and heading_text.lower() in text.lower():
+                        start_line = i
+                        heading_level = level
+                    elif start_line is not None and level <= heading_level:
+                        end_line = i
+                        break
+            if start_line is not None:
+                section = "\n".join(lines[start_line:end_line])
+                return f"文档 '{document.title}' 章节内容:\n{section[:500]}{'...' if len(section) > 500 else ''}"
+            return f"未在文档 '{document.title}' 中找到标题: {heading_text}"
 
         elif function_name == "insertEnd":
             content = params.get("content", "")
+            if not content:
+                return "错误: insertEnd 需要 content 参数"
             document.content = (document.content or "") + "\n" + content
-            return f"已在末尾追加内容"
+            attributes.flag_modified(document, 'content')
+            self.db.commit()
+            return f"已在末尾追加内容 ({len(content)} 字符)"
+
+        elif function_name == "insertAt":
+            position_type = params.get("position_type", "end")
+            position_value = params.get("position_value", "")
+            content = params.get("content", "")
+            
+            if not content:
+                return "错误: insertAt 需要 content 参数"
+            
+            content_lines = content.split("\n")
+            
+            insert_index = len(lines)
+            if position_type == "line":
+                try:
+                    insert_index = int(position_value) - 1
+                    if insert_index < 0 or insert_index > len(lines):
+                        return f"错误: 无效的行号 {position_value}，文档共 {len(lines)} 行"
+                except ValueError:
+                    return f"错误: position_value 必须是数字，当前为 '{position_value}'"
+            elif position_type == "start":
+                insert_index = 0
+            elif position_type == "heading":
+                for i, line in enumerate(lines):
+                    match = re.match(r'^#{1,6}\s+(.+)$', line)
+                    if match and position_value.lower() in match.group(1).lower():
+                        insert_index = i + 1
+                        break
+            elif position_type == "keyword":
+                for i, line in enumerate(lines):
+                    if position_value in line:
+                        insert_index = i + 1
+                        break
+            
+            insert_index = max(0, min(insert_index, len(lines)))
+            lines = lines[:insert_index] + content_lines + lines[insert_index:]
+            document.content = "\n".join(lines)
+            attributes.flag_modified(document, 'content')
+            self.db.commit()
+            return f"已在位置 {insert_index + 1} 插入内容"
+
+        elif function_name == "insertAfterHeading":
+            heading_text = params.get("heading_text", "")
+            content = params.get("content", "")
+            
+            if not content:
+                return "错误: insertAfterHeading 需要 content 参数"
+            if not heading_text:
+                return "错误: insertAfterHeading 需要 heading_text 参数"
+            
+            content_lines = content.split("\n")
+            insert_index = len(lines)
+            
+            for i, line in enumerate(lines):
+                match = re.match(r'^#{1,6}\s+(.+)$', line)
+                if match and heading_text.lower() in match.group(1).lower():
+                    insert_index = i + 1
+                    break
+            
+            lines = lines[:insert_index] + content_lines + lines[insert_index:]
+            document.content = "\n".join(lines)
+            attributes.flag_modified(document, 'content')
+            self.db.commit()
+            return f"已在标题 '{heading_text}' 后插入内容"
+
+        elif function_name == "insertParagraph":
+            content = params.get("content", "")
+            after_line = params.get("after_line")
+            before_line = params.get("before_line")
+            
+            if not content:
+                return "错误: insertParagraph 需要 content 参数"
+            
+            content_lines = content.split("\n")
+            
+            if after_line is not None:
+                insert_index = after_line
+            elif before_line is not None:
+                insert_index = before_line - 1
+            else:
+                insert_index = len(lines)
+            
+            lines = lines[:insert_index] + content_lines + lines[insert_index:]
+            document.content = "\n".join(lines)
+            attributes.flag_modified(document, 'content')
+            self.db.commit()
+            return f"已插入段落"
 
         elif function_name == "deleteByRange":
-            start = params.get("start_line", 1) - 1
-            end = params.get("end_line", len(lines))
+            start_line = params.get("start_line")
+            end_line = params.get("end_line")
+            if start_line is None or end_line is None:
+                return "错误: deleteByRange 需要 start_line 和 end_line 参数"
+            start = start_line - 1
+            end = end_line
+            if start < 0 or end > len(lines) or start >= end:
+                return f"错误: 无效的行范围 {start_line}-{end_line}，文档共 {len(lines)} 行"
+            deleted_lines = lines[start:end]
             del lines[start:end]
             document.content = "\n".join(lines)
-            return f"已删除第 {start+1} 到 {end} 行"
+            attributes.flag_modified(document, 'content')
+            self.db.commit()
+            return f"已删除第 {start+1} 到 {end} 行 ({len(deleted_lines)} 行)"
 
         elif function_name == "deleteAndSwap":
-            start = params.get("start_line", 1) - 1
-            end = params.get("end_line", start + 1)
+            start_line = params.get("start_line")
+            end_line = params.get("end_line")
             new_content = params.get("new_content", "")
-            lines[start:end] = [new_content]
+            if start_line is None:
+                return "错误: deleteAndSwap 需要 start_line 参数"
+            start = start_line - 1
+            end = end_line if end_line else start + 1
+            if start < 0 or end > len(lines) or start >= end:
+                return f"错误: 无效的行范围 {start_line}-{end_line}，文档共 {len(lines)} 行"
+            new_lines = new_content.split("\n")
+            lines[start:end] = new_lines
             document.content = "\n".join(lines)
+            attributes.flag_modified(document, 'content')
+            self.db.commit()
             return f"已替换第 {start+1} 到 {end} 行"
 
         elif function_name == "updateDocumentContent":
-            document.content = params.get("content", "")
-            return "已更新整个文档"
+            new_content = params.get("content")
+            print(f"[updateDocumentContent] document_id={target_doc_id}, content_length={len(new_content) if new_content else 'None'}")
+            if new_content is None:
+                return "错误: updateDocumentContent 需要 content 参数。如果要清空文档，请显式传入空字符串"
+            document.content = new_content
+            attributes.flag_modified(document, 'content')
+            self.db.commit()
+            print(f"[updateDocumentContent] 已提交，文档 '{document.title}' 新内容长度: {len(document.content)}")
+            return f"已更新整个文档 ({len(new_content)} 字符)"
+
+        elif function_name == "moveSection":
+            from_heading = params.get("from_heading", "")
+            to_position = params.get("to_position", "end")
+            to_position_value = params.get("to_position_value", "")
+            
+            if not from_heading:
+                return "错误: moveSection 需要 from_heading 参数"
+            
+            start_line = None
+            end_line = len(lines)
+            heading_level = None
+            
+            for i, line in enumerate(lines):
+                match = re.match(r'^(#{1,6})\s+(.+)$', line)
+                if match:
+                    level = len(match.group(1))
+                    text = match.group(2).strip()
+                    if start_line is None and from_heading.lower() in text.lower():
+                        start_line = i
+                        heading_level = level
+                    elif start_line is not None and level <= heading_level:
+                        end_line = i
+                        break
+            
+            if start_line is None:
+                return f"未找到标题: {from_heading}"
+            
+            section_lines = lines[start_line:end_line]
+            del lines[start_line:end_line]
+            
+            insert_index = len(lines)
+            if to_position == "start":
+                insert_index = 0
+            elif to_position == "line":
+                try:
+                    insert_index = int(to_position_value) - 1
+                    if insert_index < 0 or insert_index > len(lines):
+                        return f"错误: 无效的行号 {to_position_value}"
+                except ValueError:
+                    return f"错误: to_position_value 必须是数字，当前为 '{to_position_value}'"
+            elif to_position == "heading":
+                for i, line in enumerate(lines):
+                    match = re.match(r'^#{1,6}\s+(.+)$', line)
+                    if match and to_position_value.lower() in match.group(1).lower():
+                        insert_index = i
+                        break
+            
+            lines = lines[:insert_index] + section_lines + lines[insert_index:]
+            document.content = "\n".join(lines)
+            attributes.flag_modified(document, 'content')
+            self.db.commit()
+            return f"已移动章节 '{from_heading}'"
+
+        elif function_name == "getDocumentStats":
+            content = document.content or ""
+            char_count = len(content)
+            word_count = len(re.findall(r'[\u4e00-\u9fff]|[a-zA-Z]+', content))
+            line_count = len(lines)
+            heading_count = len(re.findall(r'^#{1,6}\s+', content, re.MULTILINE))
+            paragraph_count = len([p for p in content.split('\n\n') if p.strip()])
+            reading_time = round(word_count / 200, 1) if word_count > 0 else 0
+            
+            return f"文档统计: {char_count}字符, {word_count}字, {line_count}行, {heading_count}标题, {paragraph_count}段落, 预计阅读{reading_time}分钟"
+
+        elif function_name == "extractKeyInfo":
+            extract_type = params.get("extract_type", "links")
+            content = document.content or ""
+            items = []
+            
+            if extract_type == "links":
+                items = re.findall(r'(?<!!)\[([^\]]*)\]\(([^)]+)\)', content)
+                return f"找到 {len(items)} 个链接: {items[:10]}"
+            elif extract_type == "images":
+                items = re.findall(r'!\[([^\]]*)\]\(([^)]+)\)', content)
+                return f"找到 {len(items)} 张图片: {items[:10]}"
+            elif extract_type == "headings":
+                items = re.findall(r'^(#{1,6})\s+(.+)$', content, re.MULTILINE)
+                return f"找到 {len(items)} 个标题: {[h[1] for h in items[:10]]}"
+            elif extract_type == "code":
+                items = re.findall(r'```[\s\S]*?```', content)
+                return f"找到 {len(items)} 个代码块"
+            elif extract_type == "tables":
+                items = re.findall(r'^\|.*\|$', content, re.MULTILINE)
+                return f"找到表格行数: {len(items)}"
+            
+            return f"提取类型: {extract_type}"
+
+        elif function_name == "batchOperations":
+            operations = params.get("operations", [])
+            results = []
+            for op in operations:
+                op_result = self._execute_action({"function": op.get("operation"), "params": op.get("params", {})}, current_doc_id)
+                results.append(op_result)
+            return f"批量执行了 {len(operations)} 个操作: {results}"
 
         else:
             return f"未知函数: {function_name}"

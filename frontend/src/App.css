@@ -1417,3 +1417,564 @@
 .workflow-resize-handle:hover::after {
   background: white;
 }
+
+.token-usage-panel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 700px;
+  max-height: 80vh;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  z-index: 1001;
+}
+
+.token-usage-panel .panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.2rem 1.5rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 16px 16px 0 0;
+}
+
+.token-usage-panel .panel-header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.token-usage-panel .close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+}
+
+.token-usage-panel .close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.token-usage-panel .view-toggle {
+  display: flex;
+  padding: 0.5rem 1rem;
+  gap: 0.5rem;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.token-usage-panel .view-toggle button {
+  flex: 1;
+  padding: 0.6rem;
+  border: none;
+  background: #f5f5f5;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.token-usage-panel .view-toggle button.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.token-usage-panel .loading {
+  padding: 3rem;
+  text-align: center;
+  color: #888;
+}
+
+.token-usage-panel .stats-view {
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.token-usage-panel .period-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.8rem;
+  margin-bottom: 1.5rem;
+}
+
+.token-usage-panel .stat-card {
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 2px solid transparent;
+}
+
+.token-usage-panel .stat-card:hover {
+  background: #f0f0f0;
+}
+
+.token-usage-panel .stat-card.active {
+  border-color: #667eea;
+  background: #f0f4ff;
+}
+
+.token-usage-panel .stat-title {
+  font-size: 0.85rem;
+  color: #888;
+  margin-bottom: 0.5rem;
+}
+
+.token-usage-panel .stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #333;
+  margin-bottom: 0.3rem;
+}
+
+.token-usage-panel .stat-details {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.8rem;
+  color: #666;
+  margin-bottom: 0.3rem;
+}
+
+.token-usage-panel .stat-requests {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.token-usage-panel .details-section {
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.token-usage-panel .model-breakdown h4 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  color: #333;
+}
+
+.token-usage-panel .breakdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.token-usage-panel .breakdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.token-usage-panel .breakdown-label {
+  width: 150px;
+  font-size: 0.85rem;
+  color: #555;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.token-usage-panel .breakdown-bar-container {
+  flex: 1;
+  height: 8px;
+  background: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.token-usage-panel .breakdown-bar {
+  height: 100%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+
+.token-usage-panel .breakdown-value {
+  width: 60px;
+  text-align: right;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #333;
+}
+
+.token-usage-panel .no-data {
+  text-align: center;
+  color: #888;
+  padding: 1rem;
+}
+
+.token-usage-panel .actions {
+  display: flex;
+  gap: 0.8rem;
+  justify-content: center;
+}
+
+.token-usage-panel .refresh-btn,
+.token-usage-panel .clear-btn {
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.token-usage-panel .refresh-btn {
+  background: #667eea;
+  color: white;
+}
+
+.token-usage-panel .clear-btn {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.token-usage-panel .refresh-btn:hover {
+  background: #5a6fd6;
+}
+
+.token-usage-panel .clear-btn:hover {
+  background: #fecaca;
+}
+
+.token-usage-panel .history-view {
+  padding: 1rem;
+  overflow-y: auto;
+  max-height: 400px;
+}
+
+.token-usage-panel .history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.token-usage-panel .history-item {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+}
+
+.token-usage-panel .history-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.3rem;
+}
+
+.token-usage-panel .history-model {
+  font-weight: 500;
+  color: #333;
+}
+
+.token-usage-panel .history-tokens {
+  font-weight: 600;
+  color: #667eea;
+}
+
+.token-usage-panel .history-details {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.8rem;
+  color: #666;
+  margin-bottom: 0.3rem;
+}
+
+.token-usage-panel .history-type {
+  background: #e0e0e0;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.token-usage-panel .history-time {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.token-usage-panel .workflow-view {
+  padding: 1rem;
+  overflow-y: auto;
+  max-height: 400px;
+}
+
+.token-usage-panel .workflow-chart-container {
+  margin-bottom: 1rem;
+}
+
+.token-usage-panel .workflow-chart-container h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.token-usage-panel .workflow-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.token-usage-panel .workflow-list h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.token-usage-panel .workflow-item {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+}
+
+.token-usage-panel .workflow-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.3rem;
+}
+
+.token-usage-panel .workflow-id {
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.token-usage-panel .workflow-tokens {
+  font-weight: 600;
+  color: #667eea;
+}
+
+.token-usage-panel .workflow-details {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.8rem;
+  color: #666;
+  margin-bottom: 0.3rem;
+}
+
+.token-usage-panel .workflow-time {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.mcp-panel-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.mcp-panel {
+  background: white;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 800px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.mcp-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.2rem 1.5rem;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border-radius: 16px 16px 0 0;
+}
+
+.mcp-panel-header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.mcp-panel-header .close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+}
+
+.mcp-panel-header .close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.mcp-panel-toggle {
+  display: flex;
+  padding: 0.5rem 1rem;
+  gap: 0.5rem;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.mcp-panel-toggle button {
+  flex: 1;
+  padding: 0.6rem;
+  border: none;
+  background: #f5f5f5;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.mcp-panel-toggle button.active {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+}
+
+.mcp-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.mcp-functions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.mcp-function-card {
+  background: #f8f9fa;
+  border-radius: 10px;
+  padding: 1rem;
+  border-left: 4px solid #10b981;
+}
+
+.mcp-function-name {
+  font-weight: 600;
+  font-size: 1rem;
+  color: #059669;
+  margin-bottom: 0.4rem;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.mcp-function-desc {
+  font-size: 0.9rem;
+  color: #555;
+  margin-bottom: 0.6rem;
+}
+
+.mcp-function-params {
+  background: white;
+  border-radius: 6px;
+  padding: 0.6rem;
+}
+
+.mcp-params-title {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #888;
+  margin-bottom: 0.4rem;
+}
+
+.mcp-params-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.mcp-param-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.mcp-param-name {
+  font-weight: 500;
+  color: #333;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.mcp-param-type {
+  color: #667eea;
+  font-size: 0.8rem;
+}
+
+.mcp-param-optional {
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+}
+
+.mcp-param-desc {
+  color: #666;
+  font-size: 0.8rem;
+}
+
+.mcp-prompt-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.mcp-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.8rem;
+}
+
+.mcp-prompt-actions .copy-btn {
+  padding: 0.5rem 1rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.mcp-prompt-actions .copy-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.mcp-prompt-content {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 1rem;
+  border-radius: 8px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  flex: 1;
+  max-height: 400px;
+}
+
+.mcp-panel-footer {
+  padding: 0.8rem 1.5rem;
+  border-top: 1px solid #e0e0e0;
+  background: #f8f9fa;
+  border-radius: 0 0 16px 16px;
+  font-size: 0.85rem;
+  color: #666;
+  text-align: center;
+}

@@ -8,15 +8,17 @@ import {
   commitTransaction,
   rollbackTransaction
 } from './mcpFunctions'
-import * as db from './db'
+import { documentApi } from '../services/api'
 
-vi.mock('./db', () => ({
-  getAllDocuments: vi.fn(),
-  getDocumentById: vi.fn(),
-  deleteByRange: vi.fn(),
-  deleteAndSwap: vi.fn(),
-  insertEnd: vi.fn(),
-  saveDocument: vi.fn()
+vi.mock('../services/api', () => ({
+  documentApi: {
+    getAll: vi.fn(),
+    getById: vi.fn(),
+    deleteByRange: vi.fn(),
+    deleteAndSwap: vi.fn(),
+    insertEnd: vi.fn(),
+    updateContent: vi.fn()
+  }
 }))
 
 describe('mcpFunctions', () => {
@@ -44,8 +46,8 @@ describe('mcpFunctions', () => {
     })
 
     it('should execute getAllDocument successfully', async () => {
-      db.getAllDocuments.mockResolvedValue([
-        { id: '1', title: 'Test', createdAt: 123, updatedAt: 456 }
+      documentApi.getAll.mockResolvedValue([
+        { id: '1', title: 'Test', created_at: 123, updated_at: 456 }
       ])
       
       const result = await executeFunction('getAllDocument')
@@ -58,7 +60,7 @@ describe('mcpFunctions', () => {
       const result1 = await executeFunction('getDocumentById')
       expect(result1.success).toBe(false)
 
-      db.getDocumentById.mockResolvedValue({ id: '1', content: 'test' })
+      documentApi.getById.mockResolvedValue({ id: '1', content: 'test' })
       const result2 = await executeFunction('getDocumentById', '1')
       expect(result2.success).toBe(true)
     })
@@ -66,7 +68,7 @@ describe('mcpFunctions', () => {
 
   describe('parseAndExecute', () => {
     it('should parse JSON and execute function', async () => {
-      db.getAllDocuments.mockResolvedValue([])
+      documentApi.getAll.mockResolvedValue([])
       const jsonStr = JSON.stringify({
         option: 'getAllDocument',
         args: []

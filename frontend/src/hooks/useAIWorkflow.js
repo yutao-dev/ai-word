@@ -21,7 +21,9 @@ export const useAIWorkflow = (options = {}) => {
   const [taskPlan, setTaskPlan] = useState(null)
   const [isRunning, setIsRunning] = useState(false)
   const [pendingPreview, setPendingPreview] = useState(null)
-  
+  const [currentThinking, setCurrentThinking] = useState('')
+  const [currentAction, setCurrentAction] = useState(null)
+
   const { config } = useLLMConfig()
 
   const startTask = useCallback((userRequest, docId, originalContent) => {
@@ -32,10 +34,11 @@ export const useAIWorkflow = (options = {}) => {
     setAiSummary(null)
     setTaskPlan(null)
     setPendingPreview(null)
+    setCurrentThinking('')
+    setCurrentAction(null)
     setState(WORKFLOW_STATES.RUNNING)
     setIsRunning(true)
-    
-    // 检查 config 是否存在
+
     if (!config || !config.model) {
       setLogs(prev => [...prev, {
         type: 'error',
@@ -45,16 +48,15 @@ export const useAIWorkflow = (options = {}) => {
       setIsRunning(false)
       return
     }
-    
-    // 使用 SSE 流式请求
-    const eventSource = workflowApi.executeStream(
+
+    const eventSource = workflowApi.executeStreamV2(
       {
         user_request: userRequest,
         document_id: docId,
         model: config.model,
         max_iterations: 10
       },
-      (data) => {
+      async (data) => {
         switch (data.type) {
           case 'init':
             setLogs(prev => [...prev, {
@@ -62,16 +64,76 @@ export const useAIWorkflow = (options = {}) => {
               content: data.message
             }])
             break
+          case 'thinking':
+            setCurrentThinking(data.content)
+            break
+          case 'thinking_done':
+            setCurrentThinking('')
+            if (data.content) {
+              try {
+                const parsed = JSON.parse(data.content)
+                setDecisions(prev => [...prev, {
+                  thinking: parsed.thinking || data.content,
+                  plan: parsed.plan,
+                  action: parsed.action,
+                  summary: parsed.summary,
+                  iteration: data.iteration
+                }])
+                if (parsed.plan) {
+                  setTaskPlan(parsed.plan)
+                }
+              } catch (e) {
+                setDecisions(prev => [...prev, {
+                  thinking: data.content,
+                  iteration: data.iteration
+                }])
+              }
+            }
+            break
+          case 'action_start':
+            setCurrentAction({
+              type: 'start',
+              function: data.function,
+              target: data.target,
+              description: data.description,
+              iteration: data.iteration
+            })
+            setLogs(prev => [...prev, {
+              type: 'info',
+              content: data.description
+            }])
+            break
+          case 'action_complete':
+            setCurrentAction({
+              type: 'complete',
+              function: data.function,
+              target: data.target,
+              result: data.result,
+              iteration: data.iteration
+            })
+            if (data.result) {
+              setLogs(prev => [...prev, {
+                type: 'info',
+                content: `✅ ${data.result}`
+              }])
+            }
+            if (data.function) {
+              setOperationHistory(prev => [...prev, {
+                action: { function: data.function, params: { document_id: docId } },
+                result: data.result,
+                iteration: data.iteration
+              }])
+            }
+            break
           case 'step':
             const step = data.step
             setLogs(prev => [...prev, {
               type: 'info',
               content: `步骤 ${data.iteration}: ${step.summary || '执行操作'}`
             }])
-            
+
             if (step.action) {
               setOperationHistory(prev => [...prev, step])
-              // 安全调用 onOperation
               if (options?.onOperation) {
                 try {
                   options.onOperation(step)
@@ -80,11 +142,11 @@ export const useAIWorkflow = (options = {}) => {
                 }
               }
             }
-            
+
             if (step.thinking) {
               setDecisions(prev => [...prev, step])
             }
-            
+
             if (step.plan) {
               setTaskPlan(step.plan)
             }
@@ -94,12 +156,15 @@ export const useAIWorkflow = (options = {}) => {
             setSummary(`任务完成，共执行 ${result.iterations} 轮操作`)
             setAiSummary(result.message)
             setState(WORKFLOW_STATES.COMPLETED)
+            setCurrentThinking('')
+            setCurrentAction(null)
             eventSource.close()
             setIsRunning(false)
-            // 工作流完成后更新文档列表，确保前端显示最新内容
+            console.log('[useAIWorkflow] complete event, onUpdateDocuments:', !!options?.onUpdateDocuments)
             if (options?.onUpdateDocuments) {
               try {
-                options.onUpdateDocuments()
+                console.log('[useAIWorkflow] calling onUpdateDocuments')
+                await options.onUpdateDocuments()
               } catch (error) {
                 console.error('onUpdateDocuments error:', error)
               }
@@ -111,6 +176,8 @@ export const useAIWorkflow = (options = {}) => {
               content: `执行失败: ${data.message}`
             }])
             setState(WORKFLOW_STATES.ERROR)
+            setCurrentThinking('')
+            setCurrentAction(null)
             eventSource.close()
             setIsRunning(false)
             break
@@ -142,6 +209,8 @@ export const useAIWorkflow = (options = {}) => {
     setAiSummary(null)
     setTaskPlan(null)
     setPendingPreview(null)
+    setCurrentThinking('')
+    setCurrentAction(null)
     setState(WORKFLOW_STATES.IDLE)
   }, [])
 
@@ -172,6 +241,8 @@ export const useAIWorkflow = (options = {}) => {
     taskPlan,
     isRunning,
     pendingPreview,
+    currentThinking,
+    currentAction,
     startTask,
     confirmChanges,
     rejectChanges,

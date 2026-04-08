@@ -91,7 +91,7 @@ const Sidebar = ({
             <div className="doc-info">
               <div className="doc-title">{doc.title}</div>
               <div className="doc-date">
-                {doc.updatedAt ? formatDate(doc.updatedAt) : '刚刚'}
+                {doc.updated_at ? formatDate(doc.updated_at) : '刚刚'}
               </div>
             </div>
             <button 

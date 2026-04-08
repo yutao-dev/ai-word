@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import ReactDiffViewer from 'react-diff-viewer-continued'
-import { useAIWorkflow } from '../hooks/useAIWorkflow'
-import { WORKFLOW_STATES } from '../utils/aiWorkflow'
+import { useAIWorkflow, WORKFLOW_STATES } from '../hooks/useAIWorkflow'
 import { showSuccess, showError, showWarning } from '../utils/toast'
 
 const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocuments, onOperation }) => {
@@ -18,6 +17,8 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
     taskPlan,
     isRunning,
     pendingPreview,
+    currentThinking,
+    currentAction,
     startTask,
     confirmChanges,
     rejectChanges,
@@ -114,6 +115,27 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
       </div>
 
       <div className="ai-workflow-content">
+        {(currentThinking || currentAction) && (
+          <div className="realtime-section">
+            {currentThinking && (
+              <div className="thinking-indicator">
+                <span className="thinking-icon">🤔</span>
+                <span className="thinking-text">{currentThinking}</span>
+              </div>
+            )}
+            {currentAction && (
+              <div className="action-indicator">
+                <span className={`action-status ${currentAction.type === 'start' ? 'running' : 'complete'}`}>
+                  {currentAction.type === 'start' ? '⚙️' : '✅'}
+                </span>
+                <span className="action-text">
+                  {currentAction.description || currentAction.function}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="input-section">
           <textarea
             className="workflow-input"

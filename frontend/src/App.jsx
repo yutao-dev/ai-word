@@ -9,10 +9,11 @@ import DiffModal from './components/DiffModal'
 import EditorPane from './components/EditorPane'
 import ExportMenu from './components/ExportMenu'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
+import TokenUsagePanel from './components/TokenUsagePanel.jsx'
+import McpFunctionsPanel from './components/McpFunctionsPanel.jsx'
 import { useDocuments } from './hooks/useDocuments'
 import { useLLMConfig } from './hooks/useLLMConfig'
 import { documentApi } from './services/api'
-import { getAllDocuments } from './utils/db'
 import { showSuccess, showWarning, showError, showExportToast } from './utils/toast'
 
 function App() {
@@ -42,6 +43,8 @@ function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showAiPanel, setShowAiPanel] = useState(false)
   const [showAIWorkflow, setShowAIWorkflow] = useState(false)
+  const [showTokenUsage, setShowTokenUsage] = useState(false)
+  const [showMcpPanel, setShowMcpPanel] = useState(false)
   const [editorWidth, setEditorWidth] = useState(50)
   const [aiWorkflowWidth, setAiWorkflowWidth] = useState(400)
   const [isDragging, setIsDragging] = useState(false)
@@ -246,6 +249,20 @@ function App() {
           </button>
           <button 
             className="header-btn"
+            onClick={() => setShowTokenUsage(true)}
+            title="Token 统计"
+          >
+            📊
+          </button>
+          <button 
+            className="header-btn"
+            onClick={() => setShowMcpPanel(true)}
+            title="MCP 函数列表"
+          >
+            🔧
+          </button>
+          <button 
+            className="header-btn"
             onClick={() => setShowSettings(true)}
             title="设置"
           >
@@ -294,7 +311,7 @@ function App() {
                 docId={currentDocId}
                 currentDocContent={currentDoc?.content}
                 width={aiWorkflowWidth}
-                onUpdateDocuments={refreshCurrentDocument}
+                onUpdateDocuments={refreshDocuments}
                 onOperation={async () => {
                   await refreshCurrentDocument()
                 }}
@@ -323,6 +340,16 @@ function App() {
         availableModels={availableModels}
         isLoadingModels={isLoadingModels}
         onFetchModels={handleFetchModels}
+      />
+
+      <TokenUsagePanel 
+        show={showTokenUsage}
+        onClose={() => setShowTokenUsage(false)}
+      />
+
+      <McpFunctionsPanel 
+        show={showMcpPanel}
+        onClose={() => setShowMcpPanel(false)}
       />
     </div>
   )
