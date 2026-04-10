@@ -1,3 +1,5 @@
+import logging
+from datetime import datetime
 from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
 from typing import List, Dict, Optional
@@ -5,6 +7,17 @@ from sqlalchemy.orm import Session
 from ..core.config import get_settings
 from ..models.document import LLMConfig, TokenUsage
 from ..models.ai_schemas import ChatResponse, LLMProvider
+
+# 配置日志文件
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('ai_workflow_prompts.log'),
+        logging.StreamHandler()
+    ]
+)
+prompt_logger = logging.getLogger('ai_workflow_prompts')
 
 settings = get_settings()
 
@@ -57,7 +70,15 @@ class AIService:
             raise ValueError(f"Unsupported provider: {provider}")
 
     def _record_token_usage(self, model: str, provider: str, prompt_tokens: int, 
-                            completion_tokens: int, request_type: str = None):
+                            completion_tokens: int, request_type: str = None,
+                            cached_tokens: int = 0):
+        # 计算缓存命中率
+        cache_hit_ratio = 0
+        if prompt_tokens > 0:
+            cache_hit_ratio = int((cached_tokens / prompt_tokens) * 100)
+        
+        print(f"[TokenUsage] 记录Token使用情况: 模型={model}, 提供商={provider}, 输入Token={prompt_tokens}, 输出Token={completion_tokens}, 缓存Token={cached_tokens}, 命中率={cache_hit_ratio}%, 请求类型={request_type}")
+        
         usage = TokenUsage(
             session_id=self.session_id,
             workflow_id=self.workflow_id,
@@ -66,6 +87,8 @@ class AIService:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=prompt_tokens + completion_tokens,
+            cached_tokens=cached_tokens,
+            cache_hit_ratio=cache_hit_ratio,
             request_type=request_type
         )
         self.db.add(usage)
@@ -98,11 +121,15 @@ class AIService:
         if provider == "anthropic":
             anthropic_messages = []
             if system_prompt:
-                anthropic_messages.append({
-                    "role": "user",
-                    "content": system_prompt
-                })
+                anthropic_messages.append({"role": "user", "content": system_prompt})
             anthropic_messages.extend(messages)
+
+            # 记录提示词
+            prompt_logger.info(f"[Anthropic API] 工作流ID: {self.workflow_id}, 系统提示词长度: {len(system_prompt) if system_prompt else 0}, 消息数量: {len(messages)}")
+            prompt_logger.info(f"[Anthropic API] 系统提示词: {system_prompt[:500]}..." if system_prompt and len(system_prompt) > 500 else f"[Anthropic API] 系统提示词: {system_prompt}")
+            for i, msg in enumerate(messages):
+                prompt_logger.info(f"[Anthropic API] 消息 {i+1} - 角色: {msg.get('role')}, 内容长度: {len(msg.get('content', ''))}")
+                prompt_logger.info(f"[Anthropic API] 消息 {i+1} 内容: {msg.get('content', '')[:500]}..." if len(msg.get('content', '')) > 500 else f"[Anthropic API] 消息 {i+1} 内容: {msg.get('content', '')}")
 
             response = await client.messages.create(
                 model=model_name,
@@ -112,7 +139,19 @@ class AIService:
             )
             prompt_tokens = response.usage.input_tokens
             completion_tokens = response.usage.output_tokens
-            self._record_token_usage(model_name, provider, prompt_tokens, completion_tokens, request_type)
+            # 提取缓存 Token（Anthropic）
+            cached_tokens = 0
+            print(f"[Anthropic API] 响应 usage 对象: {dir(response.usage)}")
+            if hasattr(response.usage, 'input_tokens_details'):
+                print(f"[Anthropic API] input_tokens_details 存在: {dir(response.usage.input_tokens_details)}")
+                if hasattr(response.usage.input_tokens_details, 'cache_read_tokens'):
+                    cached_tokens = response.usage.input_tokens_details.cache_read_tokens
+                    print(f"[Anthropic API] 缓存 Token: {cached_tokens}")
+                else:
+                    print(f"[Anthropic API] input_tokens_details 中没有 cache_read_tokens 属性")
+            else:
+                print(f"[Anthropic API] 响应中没有 input_tokens_details 属性")
+            self._record_token_usage(model_name, provider, prompt_tokens, completion_tokens, request_type, cached_tokens)
             return ChatResponse(
                 content=response.content[0].text,
                 model=model_name,
@@ -126,6 +165,13 @@ class AIService:
             if system_prompt:
                 chat_messages = [{"role": "system", "content": system_prompt}] + messages
 
+            # 记录提示词
+            prompt_logger.info(f"[OpenAI API] 工作流ID: {self.workflow_id}, 系统提示词长度: {len(system_prompt) if system_prompt else 0}, 消息数量: {len(messages)}")
+            prompt_logger.info(f"[OpenAI API] 系统提示词: {system_prompt[:500]}..." if system_prompt and len(system_prompt) > 500 else f"[OpenAI API] 系统提示词: {system_prompt}")
+            for i, msg in enumerate(messages):
+                prompt_logger.info(f"[OpenAI API] 消息 {i+1} - 角色: {msg.get('role')}, 内容长度: {len(msg.get('content', ''))}")
+                prompt_logger.info(f"[OpenAI API] 消息 {i+1} 内容: {msg.get('content', '')[:500]}..." if len(msg.get('content', '')) > 500 else f"[OpenAI API] 消息 {i+1} 内容: {msg.get('content', '')}")
+
             response = await client.chat.completions.create(
                 model=model_name,
                 messages=chat_messages,
@@ -134,7 +180,19 @@ class AIService:
             )
             prompt_tokens = response.usage.prompt_tokens
             completion_tokens = response.usage.completion_tokens
-            self._record_token_usage(model_name, provider, prompt_tokens, completion_tokens, request_type)
+            # 提取缓存 Token（OpenAI）
+            cached_tokens = 0
+            print(f"[OpenAI API] 响应 usage 对象: {dir(response.usage)}")
+            if hasattr(response.usage, 'prompt_tokens_details'):
+                print(f"[OpenAI API] prompt_tokens_details 存在: {dir(response.usage.prompt_tokens_details)}")
+                if hasattr(response.usage.prompt_tokens_details, 'cached_tokens'):
+                    cached_tokens = response.usage.prompt_tokens_details.cached_tokens
+                    print(f"[OpenAI API] 缓存 Token: {cached_tokens}")
+                else:
+                    print(f"[OpenAI API] prompt_tokens_details 中没有 cached_tokens 属性")
+            else:
+                print(f"[OpenAI API] 响应中没有 prompt_tokens_details 属性")
+            self._record_token_usage(model_name, provider, prompt_tokens, completion_tokens, request_type, cached_tokens)
             return ChatResponse(
                 content=response.choices[0].message.content,
                 model=model_name,
@@ -175,11 +233,15 @@ class AIService:
         if provider == "anthropic":
             anthropic_messages = []
             if system_prompt:
-                anthropic_messages.append({
-                    "role": "user",
-                    "content": system_prompt
-                })
+                anthropic_messages.append({"role": "user", "content": system_prompt})
             anthropic_messages.extend(messages)
+
+            # 记录提示词
+            prompt_logger.info(f"[Anthropic Stream API] 工作流ID: {self.workflow_id}, 系统提示词长度: {len(system_prompt) if system_prompt else 0}, 消息数量: {len(messages)}")
+            prompt_logger.info(f"[Anthropic Stream API] 系统提示词: {system_prompt[:500]}..." if system_prompt and len(system_prompt) > 500 else f"[Anthropic Stream API] 系统提示词: {system_prompt}")
+            for i, msg in enumerate(messages):
+                prompt_logger.info(f"[Anthropic Stream API] 消息 {i+1} - 角色: {msg.get('role')}, 内容长度: {len(msg.get('content', ''))}")
+                prompt_logger.info(f"[Anthropic Stream API] 消息 {i+1} 内容: {msg.get('content', '')[:500]}..." if len(msg.get('content', '')) > 500 else f"[Anthropic Stream API] 消息 {i+1} 内容: {msg.get('content', '')}")
 
             async with client.messages.stream(
                 model=model_name,
@@ -190,16 +252,36 @@ class AIService:
                 async for text in stream.text_stream:
                     yield {"type": "token", "content": text}
                 if stream._usage:
+                    # 提取缓存 Token（Anthropic 流式）
+                    cached_tokens = 0
+                    print(f"[Anthropic Stream API] 响应 usage 对象: {dir(stream.usage)}")
+                    if hasattr(stream.usage, 'input_tokens_details'):
+                        print(f"[Anthropic Stream API] input_tokens_details 存在: {dir(stream.usage.input_tokens_details)}")
+                        if hasattr(stream.usage.input_tokens_details, 'cache_read_tokens'):
+                            cached_tokens = stream.usage.input_tokens_details.cache_read_tokens
+                            print(f"[Anthropic Stream API] 缓存 Token: {cached_tokens}")
+                        else:
+                            print(f"[Anthropic Stream API] input_tokens_details 中没有 cache_read_tokens 属性")
+                    else:
+                        print(f"[Anthropic Stream API] 响应中没有 input_tokens_details 属性")
                     self._record_token_usage(
                         model_name, provider,
                         stream.usage.input_tokens,
                         stream.usage.output_tokens,
-                        "chat_stream"
+                        "chat_stream",
+                        cached_tokens
                     )
         else:
             chat_messages = messages
             if system_prompt:
                 chat_messages = [{"role": "system", "content": system_prompt}] + messages
+
+            # 记录提示词
+            prompt_logger.info(f"[OpenAI Stream API] 工作流ID: {self.workflow_id}, 系统提示词长度: {len(system_prompt) if system_prompt else 0}, 消息数量: {len(messages)}")
+            prompt_logger.info(f"[OpenAI Stream API] 系统提示词: {system_prompt[:500]}..." if system_prompt and len(system_prompt) > 500 else f"[OpenAI Stream API] 系统提示词: {system_prompt}")
+            for i, msg in enumerate(messages):
+                prompt_logger.info(f"[OpenAI Stream API] 消息 {i+1} - 角色: {msg.get('role')}, 内容长度: {len(msg.get('content', ''))}")
+                prompt_logger.info(f"[OpenAI Stream API] 消息 {i+1} 内容: {msg.get('content', '')[:500]}..." if len(msg.get('content', '')) > 500 else f"[OpenAI Stream API] 消息 {i+1} 内容: {msg.get('content', '')}")
 
             stream = await client.chat.completions.create(
                 model=model_name,
@@ -216,11 +298,24 @@ class AIService:
                 if content:
                     yield {"type": "token", "content": content}
             if last_usage:
+                # 提取缓存 Token（OpenAI 流式）
+                cached_tokens = 0
+                print(f"[OpenAI Stream API] 响应 usage 对象: {dir(last_usage)}")
+                if hasattr(last_usage, 'prompt_tokens_details'):
+                    print(f"[OpenAI Stream API] prompt_tokens_details 存在: {dir(last_usage.prompt_tokens_details)}")
+                    if hasattr(last_usage.prompt_tokens_details, 'cached_tokens'):
+                        cached_tokens = last_usage.prompt_tokens_details.cached_tokens
+                        print(f"[OpenAI Stream API] 缓存 Token: {cached_tokens}")
+                    else:
+                        print(f"[OpenAI Stream API] prompt_tokens_details 中没有 cached_tokens 属性")
+                else:
+                    print(f"[OpenAI Stream API] 响应中没有 prompt_tokens_details 属性")
                 self._record_token_usage(
                     model_name, provider,
                     last_usage.prompt_tokens or 0,
                     last_usage.completion_tokens or 0,
-                    "chat_stream"
+                    "chat_stream",
+                    cached_tokens
                 )
 
     async def chat_with_system_stream(

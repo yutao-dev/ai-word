@@ -48,5 +48,7 @@ class TokenUsage(Base):
     prompt_tokens = Column(Integer, default=0)
     completion_tokens = Column(Integer, default=0)
     total_tokens = Column(Integer, default=0)
+    cached_tokens = Column(Integer, default=0)  # 缓存命中的 Token 数量
+    cache_hit_ratio = Column(Integer, default=0)  # 缓存命中率（百分比）
     request_type = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=get_local_now)

@@ -90,6 +90,8 @@ class TokenUsageResponse(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+    cached_tokens: int = 0
+    cache_hit_ratio: int = 0
     request_type: Optional[str] = None
     created_at: datetime
 
@@ -105,6 +107,8 @@ class TokenUsageCreate(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+    cached_tokens: int = 0
+    cache_hit_ratio: int = 0
     request_type: Optional[str] = None
 
 
@@ -112,6 +116,8 @@ class TokenUsageSummary(BaseModel):
     total_prompt_tokens: int
     total_completion_tokens: int
     total_tokens: int
+    total_cached_tokens: int
+    avg_cache_hit_ratio: int
     total_requests: int
     by_model: List[dict]
     by_provider: List[dict]

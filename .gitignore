@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# 忽略所有 __pycache__ 目录
+__pycache__/
+
+# 忽略所有 .pyc 文件（作为双重保险）
+*.pyc

@@ -3,6 +3,9 @@ import { tokenUsageApi } from '../services/api'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 
 const formatNumber = (num) => {
+  if (num === undefined || num === null) {
+    return '0'
+  }
   if (num >= 1000000) {
     return (num / 1000000).toFixed(2) + 'M'
   }
@@ -18,17 +21,21 @@ const StatCard = ({ title, data, active, onClick }) => (
     onClick={onClick}
   >
     <div className="stat-title">{title}</div>
-    <div className="stat-value">{formatNumber(data.total_tokens)}</div>
+    <div className="stat-value">{formatNumber(data.total_tokens || 0)}</div>
     <div className="stat-details">
-      <span>输入: {formatNumber(data.total_prompt_tokens)}</span>
-      <span>输出: {formatNumber(data.total_completion_tokens)}</span>
+      <span>输入: {formatNumber(data.total_prompt_tokens || 0)}</span>
+      <span>输出: {formatNumber(data.total_completion_tokens || 0)}</span>
     </div>
-    <div className="stat-requests">{data.total_requests} 次请求</div>
+    <div className="stat-cache">
+      <span>缓存: {formatNumber(data.total_cached_tokens || 0)}</span>
+      <span>命中率: {data.avg_cache_hit_ratio || 0}%</span>
+    </div>
+    <div className="stat-requests">{data.total_requests || 0} 次请求</div>
   </div>
 )
 
 const ModelBreakdown = ({ data }) => {
-  if (!data || data.by_model.length === 0) {
+  if (!data || !data.by_model || data.by_model.length === 0) {
     return <div className="no-data">暂无数据</div>
   }
 
@@ -48,6 +55,26 @@ const ModelBreakdown = ({ data }) => {
               />
             </div>
             <span className="breakdown-value">{formatNumber(item.total_tokens)}</span>
+            <span className="breakdown-cache">缓存: {formatNumber(item.cached_tokens || 0)}</span>
+          </div>
+        ))}
+      </div>
+
+      <h4>按提供商分布</h4>
+      <div className="breakdown-list">
+        {data.by_provider.map((item, index) => (
+          <div key={index} className="breakdown-item">
+            <span className="breakdown-label">{item.provider}</span>
+            <div className="breakdown-bar-container">
+              <div 
+                className="breakdown-bar" 
+                style={{ 
+                  width: `${(item.total_tokens / data.total_tokens) * 100}%` 
+                }}
+              />
+            </div>
+            <span className="breakdown-value">{formatNumber(item.total_tokens)}</span>
+            <span className="breakdown-cache">缓存: {formatNumber(item.cached_tokens || 0)}</span>
           </div>
         ))}
       </div>
@@ -203,6 +230,7 @@ const TokenUsagePanel = ({ show, onClose, workflowId = null }) => {
                     <Line type="monotone" dataKey="total_tokens" name="总Token" stroke="#8884d8" strokeWidth={2} />
                     <Line type="monotone" dataKey="prompt_tokens" name="输入" stroke="#82ca9d" strokeWidth={1} />
                     <Line type="monotone" dataKey="completion_tokens" name="输出" stroke="#ffc658" strokeWidth={1} />
+                    <Line type="monotone" dataKey="cached_tokens" name="缓存" stroke="#ff8042" strokeWidth={1} dot={{ r: 3 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -219,6 +247,8 @@ const TokenUsagePanel = ({ show, onClose, workflowId = null }) => {
                     <div className="workflow-details">
                       <span>请求: {wf.request_count}次</span>
                       <span>模型: {wf.model}</span>
+                      <span>缓存: {formatNumber(wf.cached_tokens || 0)}</span>
+                      <span>命中率: {wf.cache_hit_ratio || 0}%</span>
                     </div>
                     <div className="workflow-time">
                       {wf.first_request ? new Date(wf.first_request).toLocaleString('zh-CN') : '-'}

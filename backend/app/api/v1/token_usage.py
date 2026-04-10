@@ -20,6 +20,8 @@ def calculate_summary(db: Session, start_date: datetime) -> TokenUsageSummary:
             total_prompt_tokens=0,
             total_completion_tokens=0,
             total_tokens=0,
+            total_cached_tokens=0,
+            avg_cache_hit_ratio=0,
             total_requests=0,
             by_model=[],
             by_provider=[]
@@ -28,25 +30,48 @@ def calculate_summary(db: Session, start_date: datetime) -> TokenUsageSummary:
     total_prompt = sum(r.prompt_tokens for r in records)
     total_completion = sum(r.completion_tokens for r in records)
     total = sum(r.total_tokens for r in records)
+    # 处理 cached_tokens 列不存在的情况
+    total_cached = 0
+    try:
+        total_cached = sum(getattr(r, 'cached_tokens', 0) for r in records)
+    except:
+        pass
+    
+    # 计算平均缓存命中率
+    avg_cache_hit = 0
+    if total_prompt > 0 and total_cached > 0:
+        avg_cache_hit = int((total_cached / total_prompt) * 100)
     
     model_stats = {}
     provider_stats = {}
     
     for r in records:
         if r.model not in model_stats:
-            model_stats[r.model] = {"model": r.model, "total_tokens": 0, "count": 0}
+            model_stats[r.model] = {"model": r.model, "total_tokens": 0, "cached_tokens": 0, "count": 0}
         model_stats[r.model]["total_tokens"] += r.total_tokens
+        # 处理 cached_tokens 列不存在的情况
+        try:
+            model_stats[r.model]["cached_tokens"] += getattr(r, 'cached_tokens', 0)
+        except:
+            pass
         model_stats[r.model]["count"] += 1
         
         if r.provider not in provider_stats:
-            provider_stats[r.provider] = {"provider": r.provider, "total_tokens": 0, "count": 0}
+            provider_stats[r.provider] = {"provider": r.provider, "total_tokens": 0, "cached_tokens": 0, "count": 0}
         provider_stats[r.provider]["total_tokens"] += r.total_tokens
+        # 处理 cached_tokens 列不存在的情况
+        try:
+            provider_stats[r.provider]["cached_tokens"] += getattr(r, 'cached_tokens', 0)
+        except:
+            pass
         provider_stats[r.provider]["count"] += 1
     
     return TokenUsageSummary(
         total_prompt_tokens=total_prompt,
         total_completion_tokens=total_completion,
         total_tokens=total,
+        total_cached_tokens=total_cached,
+        avg_cache_hit_ratio=avg_cache_hit,
         total_requests=len(records),
         by_model=list(model_stats.values()),
         by_provider=list(provider_stats.values())
