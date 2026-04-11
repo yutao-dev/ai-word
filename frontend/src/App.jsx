@@ -49,6 +49,7 @@ function App() {
   const [aiWorkflowWidth, setAiWorkflowWidth] = useState(400)
   const [isDragging, setIsDragging] = useState(false)
   const [isDraggingWorkflow, setIsDraggingWorkflow] = useState(false)
+  const [isDarkMode, setIsDarkMode] = useState(false)
   
   const [showDiffView, setShowDiffView] = useState(false)
   const [diffData, setDiffData] = useState({
@@ -194,6 +195,34 @@ function App() {
     showExportToast(format, filename)
   }
 
+  // 主题切换逻辑
+  useEffect(() => {
+    // 检查本地存储中的主题偏好
+    const savedTheme = localStorage.getItem('theme')
+    if (savedTheme) {
+      setIsDarkMode(savedTheme === 'dark')
+    } else {
+      // 检查系统偏好
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+      setIsDarkMode(prefersDark)
+    }
+  }, [])
+
+  useEffect(() => {
+    // 应用主题
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark-mode')
+      localStorage.setItem('theme', 'dark')
+    } else {
+      document.documentElement.classList.remove('dark-mode')
+      localStorage.setItem('theme', 'light')
+    }
+  }, [isDarkMode])
+
+  const toggleDarkMode = () => {
+    setIsDarkMode(!isDarkMode)
+  }
+
   if (isLoading) {
     return (
       <div className="app-loading">
@@ -260,6 +289,13 @@ function App() {
             title="MCP 函数列表"
           >
             🔧
+          </button>
+          <button 
+            className="header-btn"
+            onClick={toggleDarkMode}
+            title={isDarkMode ? "切换到浅色模式" : "切换到深色模式"}
+          >
+            {isDarkMode ? "☀️" : "🌙"}
           </button>
           <button 
             className="header-btn"

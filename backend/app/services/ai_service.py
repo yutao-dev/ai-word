@@ -13,10 +13,15 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('ai_workflow_prompts.log'),
+        logging.FileHandler('ai_workflow_prompts.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
+
+# 确保 StreamHandler 也能处理 Unicode 字符
+for handler in logging.getLogger().handlers:
+    if isinstance(handler, logging.StreamHandler):
+        handler.terminator = '\n'
 prompt_logger = logging.getLogger('ai_workflow_prompts')
 
 settings = get_settings()
@@ -119,10 +124,17 @@ class AIService:
         model_name = model or (config.model if config else settings.DEFAULT_MODEL)
 
         if provider == "anthropic":
+            # 构建包含系统提示词的消息列表
             anthropic_messages = []
             if system_prompt:
                 anthropic_messages.append({"role": "user", "content": system_prompt})
-            anthropic_messages.extend(messages)
+            
+            # 转换 OpenAI 格式到 Anthropic 格式
+            for msg in messages:
+                if msg["role"] == "user":
+                    anthropic_messages.append({"role": "user", "content": msg["content"]})
+                elif msg["role"] == "assistant":
+                    anthropic_messages.append({"role": "assistant", "content": msg["content"]})
 
             # 记录提示词
             prompt_logger.info(f"[Anthropic API] 工作流ID: {self.workflow_id}, 系统提示词长度: {len(system_prompt) if system_prompt else 0}, 消息数量: {len(messages)}")
@@ -161,6 +173,7 @@ class AIService:
                 }
             )
         else:
+            # 构建包含系统提示词的消息列表
             chat_messages = messages
             if system_prompt:
                 chat_messages = [{"role": "system", "content": system_prompt}] + messages
@@ -231,10 +244,17 @@ class AIService:
         model_name = model or (config.model if config else settings.DEFAULT_MODEL)
 
         if provider == "anthropic":
+            # 构建包含系统提示词的消息列表
             anthropic_messages = []
             if system_prompt:
                 anthropic_messages.append({"role": "user", "content": system_prompt})
-            anthropic_messages.extend(messages)
+            
+            # 转换 OpenAI 格式到 Anthropic 格式
+            for msg in messages:
+                if msg["role"] == "user":
+                    anthropic_messages.append({"role": "user", "content": msg["content"]})
+                elif msg["role"] == "assistant":
+                    anthropic_messages.append({"role": "assistant", "content": msg["content"]})
 
             # 记录提示词
             prompt_logger.info(f"[Anthropic Stream API] 工作流ID: {self.workflow_id}, 系统提示词长度: {len(system_prompt) if system_prompt else 0}, 消息数量: {len(messages)}")
@@ -272,6 +292,7 @@ class AIService:
                         cached_tokens
                     )
         else:
+            # 构建包含系统提示词的消息列表
             chat_messages = messages
             if system_prompt:
                 chat_messages = [{"role": "system", "content": system_prompt}] + messages

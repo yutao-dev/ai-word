@@ -6,6 +6,8 @@ import { showSuccess, showError, showWarning } from '../utils/toast'
 const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocuments, onOperation }) => {
   const [userRequest, setUserRequest] = useState('')
   const [expanded, setExpanded] = useState({ decisions: true, operations: false })
+  const [unlimitedContext, setUnlimitedContext] = useState(false)
+  const [optimizePromptStructure, setOptimizePromptStructure] = useState(false)
   
   const {
     state,
@@ -51,7 +53,10 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
     }
 
     try {
-      startTask(userRequest, docId, currentDocContent)
+      startTask(userRequest, docId, currentDocContent, {
+        context_mode: unlimitedContext ? 'unlimited' : 'limited',
+        optimizePromptStructure: optimizePromptStructure
+      })
     } catch (error) {
       showError('任务执行失败: ' + error.message)
     }
@@ -147,6 +152,26 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
             onChange={(e) => setUserRequest(e.target.value)}
             disabled={isRunning}
           />
+          <div className="workflow-options">
+            <label className="workflow-option">
+              <input
+                type="checkbox"
+                checked={unlimitedContext}
+                onChange={(e) => setUnlimitedContext(e.target.checked)}
+                disabled={isRunning}
+              />
+              无上下文限制
+            </label>
+            <label className="workflow-option">
+              <input
+                type="checkbox"
+                checked={optimizePromptStructure}
+                onChange={(e) => setOptimizePromptStructure(e.target.checked)}
+                disabled={isRunning}
+              />
+              优化提示词结构
+            </label>
+          </div>
           <div className="workflow-buttons">
             <button
               className="workflow-start-btn"
@@ -160,6 +185,8 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
               onClick={() => {
                 clear()
                 setUserRequest('')
+                setUnlimitedContext(false)
+                setOptimizePromptStructure(false)
               }}
               disabled={isRunning}
             >
@@ -419,7 +446,7 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
 
       <style jsx>{`
         .ai-workflow-panel {
-          background: white;
+          background: var(--bg-secondary, white);
           border-radius: 8px;
           box-shadow: 0 2px 10px rgba(0,0,0,0.1);
           padding: 16px;
@@ -429,18 +456,20 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
           flex-shrink: 0;
           overflow-y: auto;
           max-height: calc(100vh - 120px);
+          color: var(--text-primary, #333);
+          transition: all 0.3s ease;
         }
 
         .task-plan-container {
-          background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+          background: var(--bg-tertiary, linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%));
           border-radius: 6px;
           padding: 12px;
-          border-left: 3px solid #0ea5e9;
+          border-left: 3px solid var(--accent-color, #0ea5e9);
         }
 
         .task-plan-message {
           font-size: 14px;
-          color: #0c4a6e;
+          color: var(--text-secondary, #0c4a6e);
           margin-bottom: 12px;
           line-height: 1.5;
         }
@@ -457,7 +486,7 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
           align-items: center;
           gap: 8px;
           padding: 8px 12px;
-          background-color: white;
+          background-color: var(--bg-primary, white);
           border-radius: 6px;
           font-size: 13px;
           box-shadow: 0 1px 3px rgba(0,0,0,0.05);
@@ -465,7 +494,7 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
         }
 
         .task-plan-item.task-complete {
-          background-color: #f0fdf4;
+          background-color: var(--bg-tertiary, #f0fdf4);
           opacity: 0.8;
         }
 
@@ -476,21 +505,21 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
 
         .task-id {
           font-weight: 600;
-          color: #0369a1;
+          color: var(--accent-color, #0369a1);
           min-width: 20px;
         }
 
         .task-plan-item.task-complete .task-id {
-          color: #15803d;
+          color: var(--success-color, #15803d);
         }
 
         .task-desc {
           flex: 1;
-          color: #374151;
+          color: var(--text-primary, #374151);
         }
 
         .task-plan-item.task-complete .task-desc {
-          color: #6b7280;
+          color: var(--text-secondary, #6b7280);
           text-decoration: line-through;
         }
 
@@ -503,23 +532,23 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
         }
 
         .badge-read {
-          background-color: #dbeafe;
-          color: #1d4ed8;
+          background-color: var(--bg-tertiary, #dbeafe);
+          color: var(--accent-color, #1d4ed8);
         }
 
         .badge-write {
-          background-color: #fef3c7;
-          color: #b45309;
+          background-color: var(--bg-tertiary, #fef3c7);
+          color: var(--warning-color, #b45309);
         }
 
         .badge-edit {
-          background-color: #dcfce7;
-          color: #15803d;
+          background-color: var(--bg-tertiary, #dcfce7);
+          color: var(--success-color, #15803d);
         }
 
         .task-plan-note {
           font-size: 12px;
-          color: #475569;
+          color: var(--text-secondary, #475569);
           background-color: rgba(255,255,255,0.7);
           padding: 8px 12px;
           border-radius: 4px;
@@ -534,6 +563,7 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
         .ai-workflow-header h3 {
           margin: 0;
           font-size: 18px;
+          color: var(--text-primary, #333);
         }
         .workflow-state {
           font-weight: bold;
@@ -552,14 +582,37 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
           width: 100%;
           min-height: 100px;
           padding: 12px;
-          border: 1px solid #ddd;
+          border: 1px solid var(--border-color, #ddd);
           border-radius: 8px;
           resize: vertical;
           font-family: inherit;
           font-size: 14px;
+          background-color: var(--bg-primary, white);
+          color: var(--text-primary, #333);
         }
         .workflow-input:disabled {
-          background-color: #f5f5f5;
+          background-color: var(--bg-tertiary, #f5f5f5);
+        }
+        .workflow-options {
+          margin: 8px 0;
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          flex-wrap: wrap;
+        }
+        .workflow-option {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 14px;
+          color: var(--text-secondary, #6b7280);
+          cursor: pointer;
+        }
+        .workflow-option input[type="checkbox"] {
+          cursor: pointer;
+        }
+        .workflow-option input[type="checkbox"]:disabled {
+          cursor: not-allowed;
         }
         .workflow-buttons {
           display: flex;
@@ -568,34 +621,36 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
         .workflow-start-btn {
           flex: 1;
           padding: 10px 16px;
-          background-color: #10b981;
+          background-color: var(--success-color, #10b981);
           color: white;
           border: none;
           border-radius: 6px;
           font-size: 14px;
           font-weight: 600;
           cursor: pointer;
-          transition: background-color 0.2s;
+          transition: background-color 0.2s, transform 0.2s;
         }
         .workflow-start-btn:hover:not(:disabled) {
           background-color: #059669;
+          transform: translateY(-1px);
         }
         .workflow-start-btn:disabled {
-          background-color: #94a3b8;
+          background-color: var(--border-color, #94a3b8);
           cursor: not-allowed;
         }
         .workflow-clear-btn {
           padding: 10px 16px;
-          background-color: #e5e7eb;
-          color: #374151;
+          background-color: var(--bg-tertiary, #e5e7eb);
+          color: var(--text-primary, #374151);
           border: none;
           border-radius: 6px;
           font-size: 14px;
           cursor: pointer;
-          transition: background-color 0.2s;
+          transition: background-color 0.2s, transform 0.2s;
         }
         .workflow-clear-btn:hover:not(:disabled) {
-          background-color: #d1d5db;
+          background-color: var(--border-color, #d1d5db);
+          transform: translateY(-1px);
         }
         .workflow-clear-btn:disabled {
           opacity: 0.5;
@@ -609,14 +664,15 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
           font-weight: 600;
           cursor: pointer;
           user-select: none;
+          color: var(--text-primary, #333);
         }
         .section-header:hover {
-          color: #3b82f6;
+          color: var(--accent-color, #3b82f6);
         }
         .logs-container, .operations-container {
           max-height: 200px;
           overflow-y: auto;
-          background-color: #f9fafb;
+          background-color: var(--bg-tertiary, #f9fafb);
           border-radius: 6px;
           padding: 8px;
         }
@@ -627,16 +683,16 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
           font-size: 13px;
         }
         .log-info {
-          background-color: #dbeafe;
-          color: #1e40af;
+          background-color: var(--bg-tertiary, #dbeafe);
+          color: var(--accent-color, #1e40af);
         }
         .log-warn {
-          background-color: #fef3c7;
-          color: #92400e;
+          background-color: var(--bg-tertiary, #fef3c7);
+          color: var(--warning-color, #92400e);
         }
         .log-error {
-          background-color: #fee2e2;
-          color: #991b1b;
+          background-color: var(--bg-tertiary, #fee2e2);
+          color: var(--error-color, #991b1b);
         }
         .log-time {
           opacity: 0.7;
@@ -645,7 +701,7 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
         .decisions-container {
           max-height: 300px;
           overflow-y: auto;
-          background-color: #f8fafc;
+          background-color: var(--bg-tertiary, #f8fafc);
           border-radius: 6px;
           padding: 8px;
         }
@@ -653,31 +709,31 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
           padding: 10px;
           border-radius: 6px;
           margin-bottom: 8px;
-          border-left: 3px solid #3b82f6;
-          background-color: white;
+          border-left: 3px solid var(--accent-color, #3b82f6);
+          background-color: var(--bg-primary, white);
         }
         .decision-entry.decision-action {
-          border-left-color: #3b82f6;
+          border-left-color: var(--accent-color, #3b82f6);
         }
         .decision-entry.decision-complete {
-          border-left-color: #10b981;
-          background-color: #f0fdf4;
+          border-left-color: var(--success-color, #10b981);
+          background-color: var(--bg-tertiary, #f0fdf4);
         }
         .decision-entry.decision-early_termination {
-          border-left-color: #f59e0b;
-          background-color: #fffbeb;
+          border-left-color: var(--warning-color, #f59e0b);
+          background-color: var(--bg-tertiary, #fffbeb);
         }
         .decision-entry.decision-validation_continue {
-          border-left-color: #8b5cf6;
-          background-color: #f5f3ff;
+          border-left-color: var(--accent-color, #8b5cf6);
+          background-color: var(--bg-tertiary, #f5f3ff);
         }
         .decision-entry.decision-retry {
-          border-left-color: #f59e0b;
-          background-color: #fffbeb;
+          border-left-color: var(--warning-color, #f59e0b);
+          background-color: var(--bg-tertiary, #fffbeb);
         }
         .decision-entry.decision-operation_failed {
-          border-left-color: #ef4444;
-          background-color: #fef2f2;
+          border-left-color: var(--error-color, #ef4444);
+          background-color: var(--bg-tertiary, #fef2f2);
         }
         .decision-header {
           display: flex;
@@ -687,7 +743,7 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
         }
         .decision-iteration {
           font-weight: 600;
-          color: #374151;
+          color: var(--text-primary, #374151);
           font-size: 13px;
         }
         .decision-type {
@@ -697,39 +753,39 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
           font-weight: 500;
         }
         .type-action {
-          background-color: #dbeafe;
-          color: #1e40af;
+          background-color: var(--bg-tertiary, #dbeafe);
+          color: var(--accent-color, #1e40af);
         }
         .type-complete {
-          background-color: #dcfce7;
-          color: #166534;
+          background-color: var(--bg-tertiary, #dcfce7);
+          color: var(--success-color, #166534);
         }
         .type-early_termination {
-          background-color: #fef3c7;
-          color: #92400e;
+          background-color: var(--bg-tertiary, #fef3c7);
+          color: var(--warning-color, #92400e);
         }
         .type-validation_continue {
-          background-color: #ede9fe;
-          color: #6d28d9;
+          background-color: var(--bg-tertiary, #ede9fe);
+          color: var(--accent-color, #6d28d9);
         }
         .type-retry {
-          background-color: #fef3c7;
-          color: #92400e;
+          background-color: var(--bg-tertiary, #fef3c7);
+          color: var(--warning-color, #92400e);
         }
         .type-operation_failed {
-          background-color: #fee2e2;
-          color: #991b1b;
+          background-color: var(--bg-tertiary, #fee2e2);
+          color: var(--error-color, #991b1b);
         }
         .decision-message {
           font-size: 13px;
-          color: #4b5563;
+          color: var(--text-secondary, #4b5563);
           line-height: 1.4;
           margin-bottom: 6px;
         }
         .decision-operation {
           font-size: 12px;
-          color: #6b7280;
-          background-color: #f3f4f6;
+          color: var(--text-secondary, #6b7280);
+          background-color: var(--bg-tertiary, #f3f4f6);
           padding: 4px 8px;
           border-radius: 4px;
           display: inline-flex;
@@ -737,36 +793,36 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
           gap: 4px;
         }
         .op-label {
-          color: #9ca3af;
+          color: var(--text-secondary, #9ca3af);
         }
         .op-name {
           font-weight: 600;
-          color: #4f46e5;
+          color: var(--accent-color, #4f46e5);
         }
         .op-args {
-          color: #6b7280;
+          color: var(--text-secondary, #6b7280);
         }
         .op-arg {
-          color: #059669;
+          color: var(--success-color, #059669);
         }
         .decision-reason {
           font-size: 12px;
-          color: #d97706;
+          color: var(--warning-color, #d97706);
           margin-top: 4px;
         }
         .decision-validation-count {
           font-size: 12px;
-          color: #6366f1;
+          color: var(--accent-color, #6366f1);
           margin-top: 4px;
         }
         .decision-retry-count {
           font-size: 12px;
-          color: #f59e0b;
+          color: var(--warning-color, #f59e0b);
           margin-top: 4px;
         }
         .decision-error {
           font-size: 12px;
-          color: #ef4444;
+          color: var(--error-color, #ef4444);
           margin-top: 4px;
         }
         .operation-entry {
@@ -778,30 +834,31 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
           font-size: 13px;
         }
         .operation-entry.success {
-          background-color: #dcfce7;
+          background-color: var(--bg-tertiary, #dcfce7);
         }
         .operation-entry.error {
-          background-color: #fee2e2;
+          background-color: var(--bg-tertiary, #fee2e2);
         }
         .summary-container {
-          background-color: #f0fdf4;
+          background-color: var(--bg-tertiary, #f0fdf4);
           border-radius: 6px;
           padding: 12px;
         }
         .summary-container p {
           margin: 4px 0;
+          color: var(--text-primary, #333);
         }
         .ai-summary-section {
           margin-top: 12px;
         }
         .ai-summary-container {
-          background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+          background: var(--bg-tertiary, linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%));
           border-radius: 6px;
           padding: 12px;
           font-size: 14px;
           line-height: 1.6;
-          color: #3730a3;
-          border-left: 3px solid #667eea;
+          color: var(--accent-color, #3730a3);
+          border-left: 3px solid var(--accent-color, #667eea);
         }
         .preview-modal-overlay {
           position: fixed;
@@ -816,7 +873,7 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
           z-index: 1000;
         }
         .preview-modal {
-          background: white;
+          background: var(--bg-secondary, white);
           border-radius: 12px;
           width: 90%;
           max-width: 1200px;
@@ -830,25 +887,25 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
           justify-content: space-between;
           align-items: center;
           padding: 16px 20px;
-          border-bottom: 1px solid #e5e7eb;
+          border-bottom: 1px solid var(--border-color, #e5e7eb);
         }
         .preview-modal-header h3 {
           margin: 0;
           font-size: 18px;
-          color: #1f2937;
+          color: var(--text-primary, #1f2937);
         }
         .preview-close-btn {
           background: none;
           border: none;
           font-size: 20px;
           cursor: pointer;
-          color: #6b7280;
+          color: var(--text-secondary, #6b7280);
           padding: 4px 8px;
           border-radius: 4px;
         }
         .preview-close-btn:hover {
-          background-color: #f3f4f6;
-          color: #1f2937;
+          background-color: var(--bg-tertiary, #f3f4f6);
+          color: var(--text-primary, #1f2937);
         }
         .preview-modal-content {
           flex: 1;
@@ -861,15 +918,15 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
           justify-content: flex-end;
           gap: 12px;
           padding: 16px 20px;
-          border-top: 1px solid #e5e7eb;
-          background-color: #f9fafb;
+          border-top: 1px solid var(--border-color, #e5e7eb);
+          background-color: var(--bg-tertiary, #f9fafb);
           border-radius: 0 0 12px 12px;
         }
         .preview-reject-btn {
           padding: 10px 20px;
-          background-color: #fee2e2;
-          color: #991b1b;
-          border: 1px solid #fecaca;
+          background-color: var(--bg-tertiary, #fee2e2);
+          color: var(--error-color, #991b1b);
+          border: 1px solid var(--border-color, #fecaca);
           border-radius: 6px;
           font-size: 14px;
           font-weight: 600;
@@ -877,21 +934,68 @@ const AIWorkflowPanel = ({ docId, currentDocContent, width = 400, onUpdateDocume
           transition: all 0.2s;
         }
         .preview-reject-btn:hover {
-          background-color: #fecaca;
+          background-color: var(--bg-tertiary, #fecaca);
+          transform: translateY(-1px);
         }
         .preview-confirm-btn {
           padding: 10px 20px;
-          background-color: #10b981;
+          background-color: var(--success-color, #10b981);
           color: white;
           border: none;
           border-radius: 6px;
           font-size: 14px;
           font-weight: 600;
           cursor: pointer;
-          transition: background-color 0.2s;
+          transition: background-color 0.2s, transform 0.2s;
         }
         .preview-confirm-btn:hover {
           background-color: #059669;
+          transform: translateY(-1px);
+        }
+
+        /* 深色模式适配 */
+        .dark-mode .ai-workflow-panel {
+          background: var(--bg-secondary);
+          color: var(--text-primary);
+        }
+
+        .dark-mode .task-plan-container {
+          background: var(--bg-tertiary);
+          border-left: 3px solid var(--accent-color);
+        }
+
+        .dark-mode .task-plan-item {
+          background-color: var(--bg-primary);
+          box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+
+        .dark-mode .workflow-input {
+          background-color: var(--bg-primary);
+          color: var(--text-primary);
+          border: 1px solid var(--border-color);
+        }
+
+        .dark-mode .logs-container,
+        .dark-mode .operations-container,
+        .dark-mode .decisions-container {
+          background-color: var(--bg-tertiary);
+        }
+
+        .dark-mode .decision-entry {
+          background-color: var(--bg-primary);
+        }
+
+        .dark-mode .preview-modal {
+          background: var(--bg-secondary);
+        }
+
+        .dark-mode .preview-modal-header {
+          border-bottom: 1px solid var(--border-color);
+        }
+
+        .dark-mode .preview-modal-actions {
+          background-color: var(--bg-tertiary);
+          border-top: 1px solid var(--border-color);
         }
       `}</style>
     </div>

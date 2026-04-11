@@ -15,7 +15,8 @@ async def workflow_stream_generator(
     user_request: str,
     document_id: str,
     model: str,
-    max_iterations: int
+    max_iterations: int,
+    context_mode: str
 ):
     # 先发送初始状态
     yield f"data: {json.dumps({'type': 'init', 'message': '工作流开始执行'})}\n\n"
@@ -26,7 +27,8 @@ async def workflow_stream_generator(
             user_request=user_request,
             document_id=document_id,
             model=model,
-            max_iterations=max_iterations
+            max_iterations=max_iterations,
+            context_mode=context_mode
         ):
             yield f"data: {json.dumps(data)}\n\n"
             await asyncio.sleep(0.1)  # 模拟流式效果
@@ -46,6 +48,7 @@ async def execute_workflow(
     document_id: str = Query(..., description="文档ID"),
     model: str = Query(..., description="模型名称"),
     max_iterations: int = Query(10, description="最大迭代次数"),
+    context_mode: str = Query("limited", description="上下文管理模式: limited 或 unlimited"),
     db: Session = Depends(get_db)
 ):
     workflow_service = WorkflowService(db)
@@ -56,7 +59,8 @@ async def execute_workflow(
             user_request=user_request,
             document_id=document_id,
             model=model,
-            max_iterations=max_iterations
+            max_iterations=max_iterations,
+            context_mode=context_mode
         ),
         media_type="text/event-stream"
     )
@@ -67,13 +71,15 @@ async def workflow_stream_generator_v2(
     user_request: str,
     document_id: str,
     model: str,
-    max_iterations: int
+    max_iterations: int,
+    context_mode: str
 ):
     async for data in workflow_service.execute_stream_v2(
         user_request=user_request,
         document_id=document_id,
         model=model,
-        max_iterations=max_iterations
+        max_iterations=max_iterations,
+        context_mode=context_mode
     ):
         yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
         await asyncio.sleep(0.05)
@@ -85,6 +91,7 @@ async def execute_workflow_v2(
     document_id: str = Query(..., description="文档ID"),
     model: str = Query(..., description="模型名称"),
     max_iterations: int = Query(10, description="最大迭代次数"),
+    context_mode: str = Query("limited", description="上下文管理模式: limited 或 unlimited"),
     db: Session = Depends(get_db)
 ):
     workflow_service = WorkflowService(db)
@@ -95,7 +102,51 @@ async def execute_workflow_v2(
             user_request=user_request,
             document_id=document_id,
             model=model,
-            max_iterations=max_iterations
+            max_iterations=max_iterations,
+            context_mode=context_mode
+        ),
+        media_type="text/event-stream"
+    )
+
+
+async def workflow_stream_generator_v3(
+    workflow_service: WorkflowService,
+    user_request: str,
+    document_id: str,
+    model: str,
+    max_iterations: int,
+    context_mode: str
+):
+    async for data in workflow_service.execute_stream_v3(
+        user_request=user_request,
+        document_id=document_id,
+        model=model,
+        max_iterations=max_iterations,
+        context_mode=context_mode
+    ):
+        yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(0.05)
+
+
+@router.get("/execute-v3")
+async def execute_workflow_v3(
+    user_request: str = Query(..., description="用户请求"),
+    document_id: str = Query(..., description="文档ID"),
+    model: str = Query(..., description="模型名称"),
+    max_iterations: int = Query(10, description="最大迭代次数"),
+    context_mode: str = Query("limited", description="上下文管理模式: limited 或 unlimited"),
+    db: Session = Depends(get_db)
+):
+    workflow_service = WorkflowService(db)
+
+    return StreamingResponse(
+        workflow_stream_generator_v3(
+            workflow_service=workflow_service,
+            user_request=user_request,
+            document_id=document_id,
+            model=model,
+            max_iterations=max_iterations,
+            context_mode=context_mode
         ),
         media_type="text/event-stream"
     )

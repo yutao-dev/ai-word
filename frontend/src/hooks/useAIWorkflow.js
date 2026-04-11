@@ -26,7 +26,7 @@ export const useAIWorkflow = (options = {}) => {
 
   const { config } = useLLMConfig()
 
-  const startTask = useCallback((userRequest, docId, originalContent) => {
+  const startTask = useCallback((userRequest, docId, originalContent, options = {}) => {
     setLogs([])
     setOperationHistory([])
     setDecisions([])
@@ -49,12 +49,14 @@ export const useAIWorkflow = (options = {}) => {
       return
     }
 
-    const eventSource = workflowApi.executeStreamV2(
+    const executeMethod = options.optimizePromptStructure ? 'executeStreamV3' : 'executeStreamV2'
+    const eventSource = workflowApi[executeMethod](
       {
         user_request: userRequest,
         document_id: docId,
         model: config.model,
-        max_iterations: 10
+        max_iterations: 10,
+        context_mode: options.context_mode || 'limited'
       },
       async (data) => {
         switch (data.type) {

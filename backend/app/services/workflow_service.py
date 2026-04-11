@@ -1,199 +1,16 @@
 import json
 import os
 from typing import List, Dict, Any, Optional
+from numpy import swapaxes
 from sqlalchemy.orm import Session, attributes
 from .ai_service import AIService
 from .skill.skill_service import SkillService
+from .prompt.prompt_builder import PromptBuilderService
 from ..models.document import Document
 from ..models.ai_schemas import WorkflowResponse
 
 # 获取技能文档目录
 SKILLS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'skills')
-
-SYSTEM_PROMPT = """你是一个专业的文档编辑助手，可以通过调用 MCP 函数来操作文档。
-
-## 📋 可用函数列表
-
-### 文档管理
-1. **createDocument** - 创建新文档
-   参数: title (标题), content (内容，可选)
-
-2. **getAllDocument** - 获取所有文档列表
-   参数: 无
-
-3. **getDocumentById** - 获取指定文档内容
-   参数: document_id (文档ID)
-
-### 内容搜索与定位
-4. **searchInDocument** - 在文档中搜索关键词
-   参数: document_id, keyword, case_sensitive (可选), use_regex (可选), context_lines (可选)
-
-5. **findAndReplace** - 查找并替换文本
-   参数: document_id, find_text, replace_text, replace_all (可选), case_sensitive (可选)
-
-6. **getDocumentOutline** - 获取文档大纲（标题树）
-   参数: document_id
-
-7. **getSectionByHeading** - 根据标题获取章节内容
-   参数: document_id, heading_text (支持模糊匹配)
-
-### 内容插入
-8. **insertEnd** - 在文档末尾追加内容
-   参数: document_id, content
-
-9. **insertAt** - 在指定位置插入内容
-   参数: document_id, position_type (line/heading/keyword/start/end), position_value, content
-
-10. **insertAfterHeading** - 在指定标题后插入内容
-    参数: document_id, heading_text, content, heading_level (可选)
-
-11. **insertParagraph** - 智能段落插入
-    参数: document_id, content, after_line (可选), before_line (可选)
-
-### 内容修改
-12. **deleteByRange** - 删除指定行范围
-    参数: document_id, start_line, end_line (行号从1开始)
-
-13. **deleteAndSwap** - 删除指定行并替换为新内容
-    参数: document_id, start_line, end_line, new_content
-
-14. **updateDocumentContent** - 更新整个文档内容
-    参数: document_id, content
-
-### 高级操作
-15. **moveSection** - 移动章节到指定位置
-    参数: document_id, from_heading, to_position (line/heading/start/end), to_position_value
-
-16. **batchOperations** - 批量执行多个操作
-    参数: document_id, operations (JSON数组), stop_on_error (可选)
-
-### 信息提取
-17. **getDocumentStats** - 获取文档统计信息
-    参数: document_id
-
-18. **extractKeyInfo** - 提取文档关键信息
-    参数: document_id, extract_type (links/images/code/tables/headings)
-
-### 统计查询
-19. **getTokenUsage** - 获取Token使用统计
-    参数: workflow_id (可选)
-
-## 🚀 首轮执行策略（重要！）
-
-**第一步必须执行**: 使用 **getAllDocument** 获取所有文档列表
-
-然后根据结果决定下一步：
-- **如果已有文档**: 使用 **getDocumentById** 获取文档内容，在此基础上进行修改
-- **如果没有文档或用户明确要求创建新文档**: 使用 **createDocument** 创建新文档
-
-⚠️ 不要在没有获取文档信息的情况下直接创建新文档！
-
-## 🎯 执行策略
-
-1. **理解需求**: 仔细分析用户的请求，确定需要执行的操作
-2. **获取上下文**: 使用 getAllDocument 和 getDocumentById 了解文档状态
-3. **规划步骤**: 制定清晰的操作计划
-4. **执行操作**: 按计划调用函数，每次操作后检查结果
-5. **验证完成**: 确认任务是否完成，必要时继续优化
-
-## ⚠️ 重要提醒
-
-- **获取文档内容不等于完成任务！** 如果用户要求修改、重写、新增内容，必须调用相应的修改函数
-- **不要在获取文档后就设置 is_complete=true**！只有当文档内容确实已经被修改并验证后，才能设置 is_complete=true
-- **常见错误**: 调用 getDocumentById 后就以为任务完成了，这是错误的！必须继续执行修改操作
-
-## 💡 使用技巧
-
-- **首轮必做**: 先调用 getAllDocument 了解当前有哪些文档
-- **跨文档操作**: 可以操作任意文档，只需传入正确的 document_id
-- 使用 **searchInDocument** 快速定位内容位置
-- 使用 **getDocumentOutline** 理解文档结构后再操作
-- 使用 **insertAt** 可以精确定位插入位置（支持行号、标题、关键词）
-- 使用 **findAndReplace** 批量替换文本
-- 使用 **batchOperations** 一次执行多个修改操作
-
-## 📤 响应格式
-
-请使用以下 JSON 格式回复：
-{
-    "thinking": "你的思考过程和分析",
-    "plan": ["步骤1", "步骤2", ...],
-    "action": {
-        "function": "函数名",
-        "params": {"参数名": "参数值", ...}
-    },
-    "is_complete": false,
-    "summary": "当前步骤说明"
-}
-
-当任务完成时，设置 is_complete 为 true。如果不需要执行操作（如仅查询信息），也可以设置 is_complete 为 true 并在 summary 中返回结果。"""
-
-
-COMPACT_SYSTEM_PROMPT = """你是一个专业的文档编辑助手，可以通过调用 MCP 函数来操作文档。
-
-## 可用函数
-createDocument, getAllDocument, getDocumentById, searchInDocument, findAndReplace,
-getDocumentOutline, getSectionByHeading, insertEnd, insertAt, insertAfterHeading,
-insertParagraph, deleteByRange, deleteAndSwap, updateDocumentContent, moveSection,
-batchOperations, getDocumentStats, extractKeyInfo, getTokenUsage
-
-## 首轮策略（重要！）
-**第一步必须执行**: 使用 **getAllDocument** 获取所有文档列表
-
-## 重要提醒
-- **获取文档内容不等于完成任务！** 必须调用修改函数
-- **不要在获取文档后就设置 is_complete=true**！
-- 只有当文档内容确实已经被修改并验证后，才能设置 is_complete=true
-
-## 响应格式
-{
-    "thinking": "思考过程",
-    "plan": ["步骤"],
-    "action": {"function": "函数名", "params": {...}},
-    "is_complete": false,
-    "summary": "说明"
-}
-
-注: 详细函数说明请参考首轮系统提示词。"""
-
-
-def build_context_message(current_doc_id: str, documents: list, iteration: int = 1) -> str:
-    """构建文档上下文消息，包含当前文档列表"""
-    if iteration == 1:
-        # 首轮发送完整文档列表和当前文档信息
-        doc_list = "\n".join([
-            f"  - ID: {doc.id} | 标题: {doc.title}" + (" (当前文档)" if doc.id == current_doc_id else "")
-            for doc in documents
-        ])
-        
-        current_doc = next((d for d in documents if d.id == current_doc_id), None)
-        current_doc_info = f"当前打开的文档: {current_doc.title} (ID: {current_doc_id})" if current_doc else f"当前打开的文档ID: {current_doc_id}"
-        
-        return f"""## 📁 当前文档上下文
-
-{current_doc_info}
-
-所有文档列表:
-{doc_list}
-
-⚠️ 操作文档时，请确保传入正确的 document_id 参数！"""
-    else:
-        # 后续轮次只发送文档引用
-        current_doc = next((d for d in documents if d.id == current_doc_id), None)
-        current_doc_title = current_doc.title if current_doc else "未知"
-        return f"""## 📁 当前文档上下文
-
-当前文档: {current_doc_title} (ID: {current_doc_id})
-
-📝 注: 完整文档内容已在首轮提供，后续操作请直接使用文档 ID 进行引用。"""
-
-def manage_context(messages: list, max_history: int = 3) -> list:
-    """管理上下文，限制历史对话长度"""
-    # 只保留最近几轮的对话
-    if len(messages) > max_history * 2:  # 每轮包含用户和助手消息
-        messages = messages[-max_history * 2:]
-    return messages
-
 
 class WorkflowService:
     def __init__(self, db: Session):
@@ -201,126 +18,123 @@ class WorkflowService:
         self.workflow_id = None
         self.ai_service = AIService(db)
         self.skill_service = SkillService(SKILLS_DIR)
+        self.prompt_builder = PromptBuilderService()
+
+
 
     async def execute(
         self,
         user_request: str,
         document_id: str,
         model: Optional[str] = None,
-        max_iterations: int = 10
+        max_iterations: int = 10,
+        context_mode: str = "limited"
     ) -> WorkflowResponse:
+        """
+        执行文档编辑工作流
+        
+        该方法通过多轮对话与AI交互，根据用户请求自动执行文档操作。
+        每轮迭代中，AI会分析当前状态并决定下一步操作，直到任务完成或达到最大迭代次数。
+        
+        Args:
+            user_request: 用户的自然语言请求
+            document_id: 目标文档ID
+            model: 使用的AI模型名称，默认为None
+            max_iterations: 最大迭代次数，防止无限循环，默认为10次
+            
+        Returns:
+            WorkflowResponse: 包含执行步骤、最终结果等信息的工作流响应对象
+            
+        Raises:
+            ValueError: 当指定文档不存在时抛出
+        """
+        # 验证目标文档是否存在
         document = self.db.query(Document).filter(Document.id == document_id).first()
         if not document:
             raise ValueError("Document not found")
 
+        # 生成唯一的工作流ID，用于追踪本次执行会话
         import uuid
         self.workflow_id = str(uuid.uuid4())
+        # 创建工作流专用的AI服务实例，用于记录Token使用情况
         workflow_ai_service = AIService(self.db, workflow_id=self.workflow_id)
 
-        steps = []
-        current_content = document.content
+        # 初始化工作流状态
+        steps = []  # 存储每轮的执行步骤信息
+        current_content = document.content  # 记录当前文档内容
+        # 初始化对话历史，第一条消息是用户的原始请求
         messages = [{"role": "user", "content": user_request}]
 
+        # 获取当前所有未删除的文档列表
+        docs = self.db.query(Document).filter(Document.is_deleted == False).all()
+        
+        # 使用提示词构建服务构建系统提示词
+        document_context = self.prompt_builder.build_document_context(docs)
+        skill_prompt = self.skill_service.process_request(user_request, model)
+        full_system_prompt = self.prompt_builder.build_system_prompt(skill_prompt, document_context)
+
+        # 开始多轮迭代执行
         for iteration in range(max_iterations):
-            docs = self.db.query(Document).filter(Document.is_deleted == False).all()
-            context_message = build_context_message(document_id, docs, iteration + 1)
 
-            # 使用 Skill 服务生成系统提示词
-            system_prompt = self.skill_service.process_request(user_request, model, iteration + 1)
-            full_system_prompt = system_prompt + "\n\n" + context_message
-
+            # 调用AI服务获取决策响应
             response = await workflow_ai_service.chat_with_system(
                 system_prompt=full_system_prompt,
                 messages=messages,
                 model=model
             )
-
-            try:
-                # 尝试解析 JSON，处理 Markdown 代码块格式
-                json_text = response.content.strip()
-                
-                # 移除 Markdown 代码块标记
-                if json_text.startswith('```json'):
-                    json_text = json_text[7:]  # 移除 ```json
-                elif json_text.startswith('```'):
-                    json_text = json_text[3:]  # 移除 ```
-                
-                if json_text.endswith('```'):
-                    json_text = json_text[:-3]  # 移除结尾的 ```
-                
-                json_text = json_text.strip()
-                
-                decision = json.loads(json_text)
-                print(f"[execute_stream] AI 返回 JSON: {json.dumps(decision, ensure_ascii=False)[:500]}")
-            except json.JSONDecodeError as e:
-                print(f"[execute_stream] JSON 解析错误: {e}, 原始内容: {response.content[:500]}")
-                decision = {
-                    "thinking": response.content,
-                    "action": None,
-                    "is_complete": False,
-                    "summary": "AI response was not valid JSON"
-                }
-
-            step_info = {
-                "iteration": iteration + 1,
-                "thinking": decision.get("thinking", ""),
-                "plan": decision.get("plan", []),
-                "action": decision.get("action"),
-                "summary": decision.get("summary", ""),
-                "is_complete": decision.get("is_complete", False)
-            }
+            decision = self.prompt_builder.parse_decision(response.content)
             
-            print(f"[execute_stream] 第 {iteration + 1} 轮, is_complete={decision.get('is_complete', False)}, has_action={action is not None}")
-            
+            # 获取AI决策的操作指令
             action = decision.get("action")
-            modification_functions = {
-                'updateDocumentContent', 'insertEnd', 'insertAt', 'insertAfterHeading',
-                'insertParagraph', 'deleteByRange', 'deleteAndSwap', 'findAndReplace',
-                'moveSection', 'createDocument'
-            }
-            has_modification = action and action.get('function') in modification_functions
             
-            if decision.get("is_complete", False) and not has_modification:
+            # 判断当前操作是否为文档修改操作
+            has_modification = self.prompt_builder.is_modification_action(action)
+            
+            # 安全检查：如果AI标记完成但没有执行修改操作，强制继续执行
+            decision = self.prompt_builder.validate_completion(decision, has_modification)
+            if not decision.get("is_complete", False) and decision.get("is_complete") != decision.get("is_complete"):
                 print(f"[execute_stream] AI 标记为完成但没有执行修改操作，忽略并继续")
-                decision["is_complete"] = False
+            
+            # 构建当前步骤的信息记录
+            step_info = self.prompt_builder.build_step_info(iteration + 1, decision)
             steps.append(step_info)
 
+            # 如果任务已完成，退出循环
             if decision.get("is_complete", False):
                 break
 
-            action = decision.get("action")
+            # 将AI的响应添加到对话历史
+            messages = self.prompt_builder.add_assistant_message(messages, response.content)
             if action:
+                # 执行AI指定的文档操作
                 result = self._execute_action(action, document_id)
+                # 记录操作结果到当前步骤
                 step_info["result"] = result
+                # 更新当前文档内容
                 current_content = document.content
                 
-                # 如果执行了创建文档操作，自动标记任务完成
+                # 特殊处理：如果执行了创建文档操作，需要将创建好的文档id也传递给AI，用于后续操作
                 func_name = action.get("function")
                 if func_name == "createDocument":
-                    decision["is_complete"] = True
                     has_modification = True
                 
-                messages.append({
-                    "role": "assistant",
-                    "content": response.content
-                })
-                messages.append({
-                    "role": "user",
-                    "content": f"操作结果: {result}\n当前文档内容:\n{current_content[:1000]}..."
-                })
+                # 将操作结果和当前文档内容反馈给AI，用于下一轮决策
+                feedback_content = self.prompt_builder.build_action_feedback_message(result, current_content)
+                messages = self.prompt_builder.add_user_message(messages, feedback_content)
             else:
-                # 如果没有 action，将 AI 的思考添加到 messages 中，以便 AI 在下一轮中使用
-                messages.append({
-                    "role": "assistant",
-                    "content": response.content
-                })
-                messages.append({
-                    "role": "user",
-                    "content": f"当前文档内容:\n{current_content[:1000]}...\n\n请根据文档内容和我的需求，继续执行操作。"
-                })
+                        
+                # 提示AI根据当前文档内容继续执行操作
+                continue_content = self.prompt_builder.build_continue_prompt(current_content)
+                messages = self.prompt_builder.add_user_message(messages, continue_content)
+            
+            # 在当前迭代结束后，最后添加当前迭代的轮数
+            messages = self.prompt_builder.add_assistant_message(messages, f"当前迭代轮数: {iteration + 1}， 最大迭代次数: {max_iterations}, 请注意迭代次数。")
 
+
+        # 提交所有数据库变更
         self.db.commit()
 
+        # 返回工作流执行结果
         return WorkflowResponse(
             success=True,
             message="Workflow executed successfully",
@@ -334,7 +148,8 @@ class WorkflowService:
         user_request: str,
         document_id: str,
         model: Optional[str] = None,
-        max_iterations: int = 10
+        max_iterations: int = 10,
+        context_mode: str = "limited"
     ):
         """流式执行工作流，实时返回步骤"""
         document = self.db.query(Document).filter(Document.id == document_id).first()
@@ -342,63 +157,44 @@ class WorkflowService:
             yield {"type": "error", "message": "Document not found"}
             return
 
+        # 初始化工作流ID
+        import uuid
+        self.workflow_id = str(uuid.uuid4())
+        
+        # 初始化对话历史
         messages = [{"role": "user", "content": user_request}]
 
+        # 获取当前所有未删除的文档列表
+        docs = self.db.query(Document).filter(Document.is_deleted == False).all()
+        
+        # 使用提示词构建服务构建系统提示词（循环外构建，保持缓存一致性）
+        document_context = self.prompt_builder.build_document_context(docs)
+        skill_prompt = self.skill_service.process_request(user_request, model)
+        full_system_prompt = self.prompt_builder.build_system_prompt(skill_prompt, document_context)
+
+        # 开始多轮迭代执行
         for iteration in range(max_iterations):
-            docs = self.db.query(Document).filter(Document.is_deleted == False).all()
-            context_message = build_context_message(document_id, docs, iteration + 1)
-
-            # 使用 Skill 服务生成系统提示词
-            system_prompt = self.skill_service.process_request(user_request, model, iteration + 1)
-            full_system_prompt = system_prompt + "\n\n" + context_message
-
+            # 调用AI服务获取决策响应
             response = await self.ai_service.chat_with_system(
                 system_prompt=full_system_prompt,
                 messages=messages,
                 model=model
             )
 
-            try:
-                # 尝试解析 JSON，处理 Markdown 代码块格式
-                json_text = response.content.strip()
-                
-                # 移除 Markdown 代码块标记
-                if json_text.startswith('```json'):
-                    json_text = json_text[7:]  # 移除 ```json
-                elif json_text.startswith('```'):
-                    json_text = json_text[3:]  # 移除 ```
-                
-                if json_text.endswith('```'):
-                    json_text = json_text[:-3]  # 移除结尾的 ```
-                
-                json_text = json_text.strip()
-                
-                decision = json.loads(json_text)
-            except json.JSONDecodeError:
-                decision = {
-                    "thinking": response.content,
-                    "action": None,
-                    "is_complete": False,
-                    "summary": "AI response was not valid JSON"
-                }
-
-            step_info = {
-                "iteration": iteration + 1,
-                "thinking": decision.get("thinking", ""),
-                "plan": decision.get("plan", []),
-                "action": decision.get("action"),
-                "summary": decision.get("summary", "")
-            }
-
-            yield {"type": "step", "step": step_info, "iteration": iteration + 1}
-
+            decision = self.prompt_builder.parse_decision(response.content)
+            
+            # 获取AI决策的操作指令
             action = decision.get("action")
-            modification_functions = {
-                'updateDocumentContent', 'insertEnd', 'insertAt', 'insertAfterHeading',
-                'insertParagraph', 'deleteByRange', 'deleteAndSwap', 'findAndReplace',
-                'moveSection', 'createDocument'
-            }
-            has_modification = action and action.get('function') in modification_functions
+            
+            # 判断当前操作是否为文档修改操作
+            has_modification = self.prompt_builder.is_modification_action(action)
+            
+            # 安全检查：如果AI标记完成但没有执行修改操作，强制继续执行
+            decision = self.prompt_builder.validate_completion(decision, has_modification)
+            
+            # 构建当前步骤的信息记录
+            step_info = self.prompt_builder.build_step_info(iteration + 1, decision)
+            yield {"type": "step", "step": step_info, "iteration": iteration + 1}
             
             if action:
                 print(f"[execute_stream] 执行 action: {json.dumps(action, ensure_ascii=False)[:300]}")
@@ -416,29 +212,17 @@ class WorkflowService:
                 document = self.db.query(Document).filter(Document.id == document_id).first()
                 print(f"[execute_stream] 刷新后文档内容长度: {len(document.content) if document else 'N/A'}")
                 
-                messages.append({
-                    "role": "assistant",
-                    "content": response.content
-                })
-                messages = manage_context(messages)
-                messages.append({
-                    "role": "user",
-                    "content": f"操作结果: {result}"
-                })
-                messages = manage_context(messages)
+                messages = self.prompt_builder.add_assistant_message(messages, response.content)
+                messages = self.prompt_builder.manage_context_history(messages, context_mode=context_mode)
+                messages = self.prompt_builder.add_user_message(messages, f"操作结果: {result}")
+                messages = self.prompt_builder.manage_context_history(messages, context_mode=context_mode)
                 print(f"[execute_stream] 第 {iteration + 1} 轮执行完成")
             else:
                 print(f"[execute_stream] AI 没有返回 action，继续等待")
-                messages.append({
-                    "role": "assistant",
-                    "content": response.content
-                })
-                messages = manage_context(messages)
-                messages.append({
-                    "role": "user",
-                    "content": "请继续执行操作。"
-                })
-                messages = manage_context(messages)
+                messages = self.prompt_builder.add_assistant_message(messages, response.content)
+                messages = self.prompt_builder.manage_context_history(messages, context_mode=context_mode)
+                messages = self.prompt_builder.add_user_message(messages, "请继续执行操作。")
+                messages = self.prompt_builder.manage_context_history(messages, context_mode=context_mode)
             
             if decision.get("is_complete", False):
                 if has_modification:
@@ -494,7 +278,8 @@ class WorkflowService:
         user_request: str,
         document_id: str,
         model: Optional[str] = None,
-        max_iterations: int = 10
+        max_iterations: int = 10,
+        context_mode: str = "limited"
     ):
         """流式执行工作流 v2 - 实时展示思考和操作进度"""
         document = self.db.query(Document).filter(Document.id == document_id).first()
@@ -502,23 +287,29 @@ class WorkflowService:
             yield {"type": "error", "message": "Document not found"}
             return
 
+        # 初始化工作流ID
         import uuid
         self.workflow_id = str(uuid.uuid4())
         workflow_ai_service = AIService(self.db, workflow_id=self.workflow_id)
 
+        # 初始化对话历史
         messages = [{"role": "user", "content": user_request}]
         already_complete = False
 
+        # 获取当前所有未删除的文档列表
+        docs = self.db.query(Document).filter(Document.is_deleted == False).all()
+        
+        # 使用提示词构建服务构建系统提示词（循环外构建，保持缓存一致性）
+        print(f"[execute_stream_v2] 正在生成系统提示词...")
+        document_context = self.prompt_builder.build_document_context(docs)
+        skill_prompt = self.skill_service.process_request(user_request, model)
+        full_system_prompt = self.prompt_builder.build_system_prompt(skill_prompt, document_context)
+        full_system_prompt = self.prompt_builder.add_max_iterations(full_system_prompt, max_iterations)
+        print(f"[execute_stream_v2] 系统提示词长度: {len(full_system_prompt)}")
+
+        # 开始多轮迭代执行
         for iteration in range(max_iterations):
             print(f"[execute_stream_v2] 开始第 {iteration + 1} 轮迭代")
-            docs = self.db.query(Document).filter(Document.is_deleted == False).all()
-            context_message = build_context_message(document_id, docs, iteration + 1)
-
-            # 使用 Skill 服务生成系统提示词
-            print(f"[execute_stream_v2] 正在生成系统提示词...")
-            system_prompt = self.skill_service.process_request(user_request, model, iteration + 1)
-            full_system_prompt = system_prompt + "\n\n" + context_message
-            print(f"[execute_stream_v2] 系统提示词长度: {len(full_system_prompt)}")
 
             yield {
                 "type": "thinking",
@@ -556,40 +347,13 @@ class WorkflowService:
                 "iteration": iteration + 1
             }
 
-            try:
-                # 尝试解析 JSON，处理 Markdown 代码块格式
-                json_text = response_text.strip()
-                
-                # 移除 Markdown 代码块标记
-                if json_text.startswith('```json'):
-                    json_text = json_text[7:]  # 移除 ```json
-                elif json_text.startswith('```'):
-                    json_text = json_text[3:]  # 移除 ```
-                
-                if json_text.endswith('```'):
-                    json_text = json_text[:-3]  # 移除结尾的 ```
-                
-                json_text = json_text.strip()
-                
-                decision = json.loads(json_text)
-                print(f"[execute_stream_v2] 解析 JSON 成功: {json.dumps(decision, ensure_ascii=False)[:300]}...")
-            except json.JSONDecodeError as e:
-                print(f"[execute_stream_v2] JSON 解析错误: {e}")
-                print(f"[execute_stream_v2] 原始响应: {response_text[:500]}...")
-                decision = {
-                    "thinking": response_text,
-                    "action": None,
-                    "is_complete": False,
-                    "summary": "AI response was not valid JSON"
-                }
-
+            decision = self.prompt_builder.parse_decision(response_text)
             action = decision.get("action")
-            modification_functions = {
-                'updateDocumentContent', 'insertEnd', 'insertAt', 'insertAfterHeading',
-                'insertParagraph', 'deleteByRange', 'deleteAndSwap', 'findAndReplace',
-                'moveSection', 'createDocument'
-            }
-            has_modification = action and action.get('function') in modification_functions
+            has_modification = self.prompt_builder.is_modification_action(action)
+            
+            # 安全检查：如果AI标记完成但没有执行修改操作，强制继续执行
+            decision = self.prompt_builder.validate_completion(decision, has_modification)
+            
             print(f"[execute_stream_v2] 分析结果: action={action is not None}, is_complete={decision.get('is_complete', False)}, has_modification={has_modification}")
 
             if action:
@@ -624,10 +388,10 @@ class WorkflowService:
                 document = self.db.query(Document).filter(Document.id == document_id).first()
                 print(f"[execute_stream_v2] 刷新后文档内容长度: {len(document.content) if document else 'N/A'}")
 
-                messages.append({"role": "assistant", "content": response_text})
-                messages = manage_context(messages)
-                messages.append({"role": "user", "content": f"操作结果: {result}"})
-                messages = manage_context(messages)
+                messages = self.prompt_builder.add_assistant_message(messages, response_text)
+                messages = self.prompt_builder.manage_context_history(messages, context_mode=context_mode)
+                messages = self.prompt_builder.add_user_message(messages, f"操作结果: {result}")
+                messages = self.prompt_builder.manage_context_history(messages, context_mode=context_mode)
                 
                 # 如果执行了创建文档操作，自动标记任务完成
                 if func_name == "createDocument":
@@ -636,10 +400,10 @@ class WorkflowService:
                     has_modification = True
             else:
                 print(f"[execute_stream_v2] 没有操作，继续执行下一轮")
-                messages.append({"role": "assistant", "content": response_text})
-                messages = manage_context(messages)
-                messages.append({"role": "user", "content": "请继续执行操作。"})
-                messages = manage_context(messages)
+                messages = self.prompt_builder.add_assistant_message(messages, response_text)
+                messages = self.prompt_builder.manage_context_history(messages, context_mode=context_mode)
+                messages = self.prompt_builder.add_user_message(messages, "请继续执行操作。")
+                messages = self.prompt_builder.manage_context_history(messages, context_mode=context_mode)
 
             if decision.get("is_complete", False):
                 print(f"[execute_stream_v2] 任务标记为完成，has_modification={has_modification}")
@@ -662,6 +426,191 @@ class WorkflowService:
 
         if not already_complete:
             print(f"[execute_stream_v2] 已达最大迭代次数，返回完成结果")
+            self.db.commit()
+            yield {
+                "type": "complete",
+                "result": {
+                    "success": True,
+                    "message": "已达最大迭代次数",
+                    "final_content": document.content if document else "",
+                    "iterations": iteration + 1,
+                    "workflow_id": self.workflow_id
+                }
+            }
+
+    async def execute_stream_v3(
+        self,
+        user_request: str,
+        document_id: str,
+        model: Optional[str] = None,
+        max_iterations: int = 10,
+        context_mode: str = "limited"
+    ):
+        """流式执行工作流 v3 - 优化提示词结构，精简操作结果"""
+        document = self.db.query(Document).filter(Document.id == document_id).first()
+        if not document:
+            yield {"type": "error", "message": "Document not found"}
+            return
+
+        # 初始化工作流ID
+        import uuid
+        self.workflow_id = str(uuid.uuid4())
+        workflow_ai_service = AIService(self.db, workflow_id=self.workflow_id)
+
+        # 初始化对话历史
+        messages = [{"role": "user", "content": user_request}]
+        already_complete = False
+
+        # 获取当前所有未删除的文档列表
+        docs = self.db.query(Document).filter(Document.is_deleted == False).all()
+        
+        # 使用提示词构建服务构建系统提示词（循环外构建，保持缓存一致性）
+        print(f"[execute_stream_v3] 正在生成系统提示词...")
+        document_context = self.prompt_builder.build_document_context(docs)
+        skill_prompt = self.skill_service.process_request(user_request, model)
+        full_system_prompt = self.prompt_builder.build_system_prompt(skill_prompt, document_context)
+        full_system_prompt = self.prompt_builder.add_max_iterations(full_system_prompt, max_iterations)
+        print(f"[execute_stream_v3] 系统提示词长度: {len(full_system_prompt)}")
+
+        # 开始多轮迭代执行
+        for iteration in range(max_iterations):
+            print(f"[execute_stream_v3] 开始第 {iteration + 1} 轮迭代")
+
+            yield {
+                "type": "thinking",
+                "content": "正在思考...",
+                "iteration": iteration + 1
+            }
+
+            response_text = ""
+            thinking_streamed = False
+            print(f"[execute_stream_v3] 正在调用 AI 服务...")
+            async for token in workflow_ai_service.chat_with_system_stream(
+                system_prompt=full_system_prompt,
+                messages=messages,
+                model=model
+            ):
+                if token.get("type") == "error":
+                    print(f"[execute_stream_v3] AI 服务错误: {token.get('content')}")
+                    yield token
+                    return
+                if token.get("type") == "token":
+                    response_text += token["content"]
+                    if not thinking_streamed:
+                        yield {
+                            "type": "thinking",
+                            "content": "正在思考...",
+                            "iteration": iteration + 1
+                        }
+                        thinking_streamed = True
+
+            print(f"[execute_stream_v3] AI 服务返回结果: {response_text[:300]}...")
+
+            yield {
+                "type": "thinking_done",
+                "content": response_text,
+                "iteration": iteration + 1
+            }
+
+            decision = self.prompt_builder.parse_decision(response_text)
+            action = decision.get("action")
+            has_modification = self.prompt_builder.is_modification_action(action)
+            
+            # 安全检查：如果AI标记完成但没有执行修改操作，强制继续执行
+            decision = self.prompt_builder.validate_completion(decision, has_modification)
+            
+            print(f"[execute_stream_v3] 分析结果: action={action is not None}, is_complete={decision.get('is_complete', False)}, has_modification={has_modification}")
+
+            if action:
+                func_name = action.get("function")
+                params = action.get("params", {})
+                target_doc_id = params.get("document_id", document_id)
+                target_doc = self.db.query(Document).filter(Document.id == target_doc_id).first()
+                target_title = target_doc.title if target_doc else target_doc_id
+
+                print(f"[execute_stream_v3] 准备执行操作: {func_name}，目标: {target_title}")
+
+                yield {
+                    "type": "action_start",
+                    "function": func_name,
+                    "target": target_title,
+                    "description": self._get_action_description(func_name, target_title),
+                    "iteration": iteration + 1
+                }
+
+                result = self._execute_action(action, document_id)
+                print(f"[execute_stream_v3] 操作执行结果: {result[:200] if len(result) > 200 else result}")
+
+                yield {
+                    "type": "action_complete",
+                    "function": func_name,
+                    "target": target_title,
+                    "result": result,
+                    "iteration": iteration + 1
+                }
+
+                self.db.expire_all()
+                document = self.db.query(Document).filter(Document.id == document_id).first()
+                print(f"[execute_stream_v3] 刷新后文档内容长度: {len(document.content) if document else 'N/A'}")
+
+                # 优化提示词结构：精简操作结果
+                optimized_result = result
+                if func_name in ['insertEnd', 'insertAt', 'insertAfterHeading', 'insertParagraph']:
+                    # 插入操作：只显示调用函数以及省略的操作
+                    content_param = params.get('content', '')
+                    if content_param:
+                        truncated_content = content_param[:20] + ('...' if len(content_param) > 20 else '')
+                        optimized_result = f"{func_name}({truncated_content}) 操作成功"
+                elif func_name in ['updateDocumentContent', 'findAndReplace']:
+                    # 修改操作：精简显示
+                    content_param = params.get('content', '') or params.get('replacement', '')
+                    if content_param:
+                        truncated_content = content_param[:20] + ('...' if len(content_param) > 20 else '')
+                        optimized_result = f"{func_name} 操作成功，内容: {truncated_content}"
+                # 查询操作保持完整结果
+
+                messages = self.prompt_builder.add_assistant_message(messages, response_text)
+                messages = self.prompt_builder.manage_context_history(messages, context_mode=context_mode)
+                messages = self.prompt_builder.add_user_message(messages, f"操作结果: {optimized_result}")
+                # 在消息最后插入当前的迭代轮数/最长的迭代轮数
+                messages = self.prompt_builder.add_user_message(messages, f"当前迭代: {iteration + 1}/{max_iterations}，请合理规划后续步骤")
+                messages = self.prompt_builder.manage_context_history(messages, context_mode=context_mode)
+                
+                # 如果执行了创建文档操作，自动标记任务完成
+                if func_name == "createDocument":
+                    print(f"[execute_stream_v3] 执行了创建文档操作，自动标记任务完成")
+                    decision["is_complete"] = True
+                    has_modification = True
+            else:
+                print(f"[execute_stream_v3] 没有操作，继续执行下一轮")
+                messages = self.prompt_builder.add_assistant_message(messages, response_text)
+                messages = self.prompt_builder.manage_context_history(messages, context_mode=context_mode)
+                messages = self.prompt_builder.add_user_message(messages, "请继续执行操作。")
+                # 在消息最后插入当前的迭代轮数/最长的迭代轮数
+                messages = self.prompt_builder.add_user_message(messages, f"当前迭代: {iteration + 1}/{max_iterations}，请合理规划后续步骤")
+                messages = self.prompt_builder.manage_context_history(messages, context_mode=context_mode)
+
+            if decision.get("is_complete", False):
+                print(f"[execute_stream_v3] 任务标记为完成，has_modification={has_modification}")
+                if has_modification:
+                    print(f"[execute_stream_v3] 有修改操作，返回完成结果")
+                    yield {
+                        "type": "complete",
+                        "result": {
+                            "success": True,
+                            "message": "任务已完成",
+                            "final_content": document.content if document else "",
+                            "iterations": iteration + 1,
+                            "workflow_id": self.workflow_id
+                        }
+                    }
+                    already_complete = True
+                else:
+                    print(f"[execute_stream_v3] 没有修改操作，退出循环")
+                break
+
+        if not already_complete:
+            print(f"[execute_stream_v3] 已达最大迭代次数，返回完成结果")
             self.db.commit()
             yield {
                 "type": "complete",

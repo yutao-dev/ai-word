@@ -1,7 +1,6 @@
 from typing import List, Dict, Optional
 from .document_manager import DocumentManager
 from .skill_analyzer import SkillAnalyzer
-from .cache_manager import CacheManager
 
 class SkillService:
     """Skill 服务主模块"""
@@ -9,7 +8,6 @@ class SkillService:
     def __init__(self, skills_dir: str):
         self.document_manager = DocumentManager(skills_dir)
         self.skill_analyzer = SkillAnalyzer()
-        self.cache_manager = CacheManager()
     
     def process_request(self, user_request: str, model_name: str, iteration: int = 1) -> str:
         """
@@ -28,11 +26,6 @@ class SkillService:
         
         # 构建系统提示词
         system_prompt = self.document_manager.build_prompt(selected_skills, iteration)
-        
-        # 更新缓存状态
-        if iteration == 1:
-            cache_key = self.cache_manager.get_cache_key(selected_skills, model_name)
-            self.cache_manager.update_cache(cache_key)
         
         return system_prompt
     

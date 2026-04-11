@@ -120,7 +120,8 @@ export const workflowApi = {
     execute: (data) => api.post('/workflow/execute', data),
     executeStream: (data, onMessage, onError, onComplete) => {
         const url = `${API_BASE_URL}/workflow/execute`;
-        const eventSource = new EventSource(`${url}?user_request=${encodeURIComponent(data.user_request)}&document_id=${encodeURIComponent(data.document_id)}&model=${encodeURIComponent(data.model)}&max_iterations=${data.max_iterations}`);
+        const contextMode = data.context_mode || 'limited';
+        const eventSource = new EventSource(`${url}?user_request=${encodeURIComponent(data.user_request)}&document_id=${encodeURIComponent(data.document_id)}&model=${encodeURIComponent(data.model)}&max_iterations=${data.max_iterations}&context_mode=${contextMode}`);
 
         eventSource.onmessage = (event) => {
             try {
@@ -144,7 +145,33 @@ export const workflowApi = {
     },
     executeStreamV2: (data, onMessage, onError, onComplete) => {
         const url = `${API_BASE_URL}/workflow/execute-v2`;
-        const eventSource = new EventSource(`${url}?user_request=${encodeURIComponent(data.user_request)}&document_id=${encodeURIComponent(data.document_id)}&model=${encodeURIComponent(data.model)}&max_iterations=${data.max_iterations}`);
+        const contextMode = data.context_mode || 'limited';
+        const eventSource = new EventSource(`${url}?user_request=${encodeURIComponent(data.user_request)}&document_id=${encodeURIComponent(data.document_id)}&model=${encodeURIComponent(data.model)}&max_iterations=${data.max_iterations}&context_mode=${contextMode}`);
+
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                onMessage(data);
+            } catch (error) {
+                console.error('Error parsing SSE message:', error);
+            }
+        };
+
+        eventSource.onerror = (error) => {
+            onError(error);
+            eventSource.close();
+        };
+
+        eventSource.onclose = () => {
+            onComplete();
+        };
+
+        return eventSource;
+    },
+    executeStreamV3: (data, onMessage, onError, onComplete) => {
+        const url = `${API_BASE_URL}/workflow/execute-v3`;
+        const contextMode = data.context_mode || 'limited';
+        const eventSource = new EventSource(`${url}?user_request=${encodeURIComponent(data.user_request)}&document_id=${encodeURIComponent(data.document_id)}&model=${encodeURIComponent(data.model)}&max_iterations=${data.max_iterations}&context_mode=${contextMode}`);
 
         eventSource.onmessage = (event) => {
             try {
