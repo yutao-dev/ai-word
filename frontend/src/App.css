@@ -2320,12 +2320,1206 @@
 
 .dark-mode .diff-pane-header {
   background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+}
+
+/* RAG面板样式 */
+.rag-panel-container {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 500px;
+  background: #ffffff;
+  box-shadow: -5px 0 20px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.rag-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.rag-panel-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 1.2rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.rag-panel-header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.rag-close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.rag-close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
+}
+
+.rag-panel-content {
+  flex: 1;
+  padding: 1.5rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.rag-query-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+.rag-query-form label {
+  font-weight: 500;
+  color: #333;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rag-question-input {
+  width: 100%;
+  min-height: 140px;
+  padding: 1.2rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  resize: vertical;
+  outline: none;
+  transition: all 0.2s ease;
+  background: #fafafa;
+}
+
+.rag-question-input:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  background: white;
+}
+
+.rag-model-select {
+  padding: 0.8rem 1rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.2s ease;
+  background: #fafafa;
+}
+
+.rag-model-select:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  background: white;
+}
+
+.rag-submit-btn {
+  padding: 0.9rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+
+.rag-submit-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s ease;
+}
+
+.rag-submit-btn:hover:not(:disabled)::before {
+  left: 100%;
+}
+
+.rag-submit-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+}
+
+.rag-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.rag-response-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.rag-response-section h4 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #333;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rag-response-section h4::before {
+  content: '';
+  width: 4px;
+  height: 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 2px;
+}
+
+.rag-answer {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 1.2rem;
+  min-height: 180px;
+  max-height: 350px;
+  overflow-y: auto;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #333;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+}
+
+.rag-answer:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.rag-context {
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 1.2rem;
+  min-height: 120px;
+  max-height: 250px;
+  overflow-y: auto;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #555;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+}
+
+.rag-context:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.rag-context h5 {
+  margin: 0 0 0.8rem 0;
+  font-size: 0.95rem;
+  color: #333;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rag-context h5::before {
+  content: '📚';
+  font-size: 1rem;
+}
+
+.rag-actions {
+  display: flex;
+  gap: 0.8rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.rag-refresh-btn {
+  padding: 0.7rem 1.4rem;
+  background: #10b981;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+
+.rag-refresh-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s ease;
+}
+
+.rag-refresh-btn:hover:not(:disabled)::before {
+  left: 100%;
+}
+
+.rag-refresh-btn:hover:not(:disabled) {
+  background: #0da271;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.rag-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.rag-error {
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  border-radius: 10px;
+  padding: 1.2rem;
+  color: #991b1b;
+  font-size: 0.9rem;
+  margin-top: 1rem;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2);
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.rag-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 1.2rem;
+  background: #f0f4ff;
+  border-radius: 10px;
+  color: #3730a3;
+  font-size: 0.95rem;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.rag-loading .spinner {
+  border-color: rgba(55, 48, 163, 0.3);
+  border-top-color: #3730a3;
+  width: 18px;
+  height: 18px;
+}
+
+/* 深色模式下的RAG面板样式 */
+.dark-mode .rag-panel-container {
+  background: var(--bg-primary);
+  box-shadow: -5px 0 20px rgba(0, 0, 0, 0.3);
+}
+
+.dark-mode .rag-query-form {
+  background: var(--bg-secondary);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.dark-mode .rag-question-input {
+  background: var(--bg-primary);
+  border: 2px solid var(--border-color);
   color: var(--text-primary);
 }
 
-.dark-mode .diff-content {
+.dark-mode .rag-question-input:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+  background: var(--bg-primary);
+}
+
+.dark-mode .rag-model-select {
+  background: var(--bg-primary);
+  border: 2px solid var(--border-color);
   color: var(--text-primary);
+}
+
+.dark-mode .rag-model-select:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+  background: var(--bg-primary);
+}
+
+.dark-mode .rag-answer {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.dark-mode .rag-answer:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.dark-mode .rag-context {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.dark-mode .rag-context:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.dark-mode .rag-context h5 {
+  color: var(--text-primary);
+}
+
+.dark-mode .rag-response-section h4 {
+  color: var(--text-primary);
+}
+
+.dark-mode .rag-query-form label {
+  color: var(--text-primary);
+}
+
+.dark-mode .rag-error {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+}
+
+.dark-mode .rag-loading {
+  background: rgba(102, 126, 234, 0.2);
+  color: var(--accent-color);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.dark-mode .rag-loading .spinner {
+  border-color: rgba(102, 126, 234, 0.3);
+  border-top-color: var(--accent-color);
+}
+
+/* 滚动条样式 */
+.rag-panel-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.rag-panel-content::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.rag-panel-content::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.rag-panel-content::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+.dark-mode .rag-panel-content::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+}
+
+.dark-mode .rag-panel-content::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+}
+
+.dark-mode .rag-panel-content::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+
+.rag-answer::-webkit-scrollbar,
+.rag-context::-webkit-scrollbar {
+  width: 6px;
+}
+
+.rag-answer::-webkit-scrollbar-track,
+.rag-context::-webkit-scrollbar-track {
+  background: #f0f0f0;
+  border-radius: 3px;
+}
+
+.rag-answer::-webkit-scrollbar-thumb,
+.rag-context::-webkit-scrollbar-thumb {
+  background: #b0b0b0;
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+
+.rag-answer::-webkit-scrollbar-thumb:hover,
+.rag-context::-webkit-scrollbar-thumb:hover {
+  background: #909090;
+}
+
+.dark-mode .rag-answer::-webkit-scrollbar-track,
+.dark-mode .rag-context::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+}
+
+.dark-mode .rag-answer::-webkit-scrollbar-thumb,
+.dark-mode .rag-context::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+}
+
+.dark-mode .rag-answer::-webkit-scrollbar-thumb:hover,
+.dark-mode .rag-context::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+
+/* Markdown 渲染样式 */
+.rag-answer :is(h1, h2, h3, h4, h5, h6) {
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.rag-answer h1 {
+  font-size: 1.5rem;
+  border-bottom: 2px solid #667eea;
+  padding-bottom: 0.5rem;
+}
+
+.rag-answer h2 {
+  font-size: 1.3rem;
+  border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 0.3rem;
+}
+
+.rag-answer h3 {
+  font-size: 1.1rem;
+}
+
+.rag-answer p {
+  margin-bottom: 1rem;
+  line-height: 1.6;
+}
+
+.rag-answer ul,
+.rag-answer ol {
+  margin-bottom: 1rem;
+  padding-left: 2rem;
+}
+
+.rag-answer li {
+  margin-bottom: 0.5rem;
+  line-height: 1.6;
+}
+
+.rag-answer code {
+  background: #f0f0f0;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.9em;
+}
+
+.rag-answer pre {
+  background: #2d2d2d;
+  color: #f8f8f2;
+  padding: 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+}
+
+.rag-answer pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+
+.rag-answer blockquote {
+  border-left: 4px solid #667eea;
+  padding-left: 1rem;
+  margin-bottom: 1rem;
+  color: #666;
+  font-style: italic;
+}
+
+.rag-answer a {
+  color: #667eea;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.rag-answer a:hover {
+  color: #764ba2;
+  text-decoration: underline;
+}
+
+.rag-answer table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+
+.rag-answer th,
+.rag-answer td {
+  border: 1px solid #e0e0e0;
+  padding: 0.6rem 1rem;
+  text-align: left;
+}
+
+.rag-answer th {
+  background: #f5f5f5;
+  font-weight: 600;
+}
+
+/* 深色模式下的 Markdown 样式 */
+.dark-mode .rag-answer :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--text-primary);
+}
+
+.dark-mode .rag-answer h1 {
+  border-bottom: 2px solid var(--accent-color);
+}
+
+.dark-mode .rag-answer h2 {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.dark-mode .rag-answer code {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.dark-mode .rag-answer pre {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.dark-mode .rag-answer blockquote {
+  border-left: 4px solid var(--accent-color);
+  color: var(--text-secondary);
+}
+
+.dark-mode .rag-answer a {
+  color: var(--accent-color);
+}
+
+.dark-mode .rag-answer a:hover {
+  color: #764ba2;
+}
+
+.dark-mode .rag-answer th {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.dark-mode .rag-answer th,
+.dark-mode .rag-answer td {
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+/* 上下文 Markdown 样式 */
+.rag-context :is(h1, h2, h3, h4, h5, h6) {
+  margin-top: 1rem;
+  margin-bottom: 0.6rem;
+  font-weight: 600;
+  color: #2c3e50;
+  font-size: 0.95em;
+  line-height: 1.4;
+}
+
+.rag-context p {
+  margin-bottom: 1rem;
+  line-height: 1.6;
+  color: #34495e;
+  font-size: 0.9rem;
+}
+
+.rag-context ul,
+.rag-context ol {
+  margin-bottom: 1rem;
+  padding-left: 1.8rem;
+  color: #34495e;
+}
+
+.rag-context li {
+  margin-bottom: 0.4rem;
+  line-height: 1.6;
+  font-size: 0.9rem;
+}
+
+.rag-context code {
+  background: #f0f0f0;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.85em;
+  color: #e74c3c;
+}
+
+.rag-context pre {
+  background: #2d2d2d;
+  color: #f8f8f2;
+  padding: 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+.rag-context pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+
+.rag-context blockquote {
+  border-left: 4px solid #667eea;
+  padding-left: 1rem;
+  margin-bottom: 1rem;
+  color: #7f8c8d;
+  font-style: italic;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.rag-context a {
+  color: #3498db;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.rag-context a:hover {
+  color: #2980b9;
+  text-decoration: underline;
+}
+
+/* 深色模式下的上下文样式 */
+.dark-mode .rag-context :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--text-primary);
+  opacity: 0.95;
+}
+
+.dark-mode .rag-context p {
+  color: var(--text-primary);
+  opacity: 0.9;
+}
+
+.dark-mode .rag-context ul,
+.dark-mode .rag-context ol {
+  color: var(--text-primary);
+  opacity: 0.9;
+}
+
+.dark-mode .rag-context li {
+  color: var(--text-primary);
+  opacity: 0.9;
+}
+
+.dark-mode .rag-context code {
+  background: var(--bg-secondary);
+  color: #f39c12;
+  opacity: 0.9;
+}
+
+.dark-mode .rag-context pre {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  opacity: 0.9;
+}
+
+.dark-mode .rag-context blockquote {
+  border-left: 4px solid var(--accent-color);
+  color: var(--text-secondary);
+  opacity: 0.85;
+}
+
+.dark-mode .rag-context a {
+  color: #3498db;
+  opacity: 0.9;
+}
+
+.dark-mode .rag-context a:hover {
+  color: #2980b9;
+  opacity: 1;
+}
+
+/* 会话历史样式 */
+.rag-messages-container {
+  max-height: 500px;
+  overflow-y: auto;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+}
+
+.rag-message {
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.rag-message-header {
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.rag-message.user .rag-message-header {
+  justify-content: flex-end;
+}
+
+.rag-message-role {
+  padding: 0.2rem 0.8rem;
+  border-radius: 12px;
+  display: inline-block;
+}
+
+.rag-message.user .rag-message-role {
+  background: #667eea;
+  color: white;
+}
+
+.rag-message.assistant .rag-message-role {
+  background: #4ade80;
+  color: #166534;
+}
+
+.rag-message-content {
+  padding: 1rem;
+  border-radius: 12px;
+  line-height: 1.6;
+  max-width: 90%;
+}
+
+.rag-message.user .rag-message-content {
+  background: #f0f0f0;
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+}
+
+.rag-message.assistant .rag-message-content {
+  background: #f8fafc;
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+}
+
+.rag-message-context-container {
+  margin-top: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.rag-context-toggle {
+  padding: 0.4rem 0.8rem;
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #93c5fd;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  align-self: flex-start;
+}
+
+.rag-context-toggle:hover {
+  background: #bae6fd;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.rag-message-context {
+  margin-top: 0.5rem;
+  padding: 0.8rem;
+  background: #f0f9ff;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  border-left: 3px solid #38bdf8;
+  width: 100%;
+  max-width: 90%;
+  animation: fadeIn 0.3s ease;
+}
+
+.rag-message-context h6 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: #0ea5e9;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rag-message-context h6::before {
+  content: "📚";
+  font-size: 1rem;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 深色模式下的参考资料样式 */
+.dark-mode .rag-context-toggle {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}
+
+.dark-mode .rag-context-toggle:hover {
+  background: rgba(56, 189, 248, 0.25);
+  box-shadow: 0 2px 8px rgba(56, 189, 248, 0.4);
+}
+
+.dark-mode .rag-message-context {
+  background: rgba(30, 41, 59, 0.8);
+  border-left-color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+}
+
+.dark-mode .rag-message-context h6 {
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+/* 深色模式下的上下文样式增强 - 确保最高对比度 */
+.dark-mode .rag-context {
+  color: #ffffff !important;
+  font-size: 0.95rem !important;
+  font-weight: 450 !important;
+  line-height: 1.7 !important;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.3) !important;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+}
+
+.dark-mode .rag-context p {
+  color: #ffffff !important;
+  opacity: 1 !important;
+  font-size: 0.95rem !important;
+  font-weight: 450 !important;
+  line-height: 1.7 !important;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.3) !important;
+  margin-bottom: 1.2rem !important;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+}
+
+/* 优化参考资料的排版 */
+.rag-context {
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  line-height: 1.7 !important;
+}
+
+.rag-context p {
+  margin-bottom: 1.2rem !important;
+  line-height: 1.7 !important;
+}
+
+/* 确保来源之间有适当的间距 */
+.rag-context br {
+  margin-bottom: 1rem !important;
+  line-height: 2 !important;
+}
+
+/* 参考资料分块样式 */
+.rag-context-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.rag-context-source-block {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 1rem;
+  transition: all 0.3s ease;
+}
+
+.rag-context-source-block:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(56, 189, 248, 0.3);
+  box-shadow: 0 2px 8px rgba(56, 189, 248, 0.15);
+}
+
+.rag-context-source-header {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #38bdf8;
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rag-context-source-header::before {
+  content: '📚';
+  font-size: 1rem;
+}
+
+.rag-context-source-content {
+  line-height: 1.6;
+}
+
+/* 深色模式下的分块样式 */
+.dark-mode .rag-context-source-block {
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+}
+
+.dark-mode .rag-context-source-block:hover {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.4);
+  box-shadow: 0 2px 10px rgba(56, 189, 248, 0.2);
+}
+
+.dark-mode .rag-context-source-header {
+  color: #38bdf8;
+  border-bottom-color: rgba(56, 189, 248, 0.3);
+}
+
+.dark-mode .rag-context ul,
+.dark-mode .rag-context ol {
+  color: #ffffff !important;
+  opacity: 1 !important;
+  line-height: 1.6 !important;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.3) !important;
+}
+
+.dark-mode .rag-context li {
+  color: #ffffff !important;
+  opacity: 1 !important;
+  line-height: 1.6 !important;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.3) !important;
+}
+
+.dark-mode .rag-context code {
+  background: rgba(255, 255, 255, 0.2) !important;
+  color: #f39c12 !important;
+  opacity: 1 !important;
+  font-weight: 500 !important;
+  text-shadow: none !important;
+}
+
+.dark-mode .rag-context pre {
+  background: rgba(0, 0, 0, 0.95) !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  text-shadow: none !important;
+}
+
+.dark-mode .rag-context blockquote {
+  border-left: 4px solid var(--accent-color) !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  background: rgba(56, 189, 248, 0.15) !important;
+  padding: 0.8rem 1rem !important;
+  border-radius: 0 8px 8px 0 !important;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.3) !important;
+}
+
+.dark-mode .rag-context a {
+  color: #60a5fa !important;
+  opacity: 1 !important;
+  font-weight: 600 !important;
+  text-shadow: 0 0 2px rgba(96, 165, 250, 0.5) !important;
+}
+
+/* 深色模式下的参考资料容器 */
+.dark-mode .rag-message-context {
+  background: #000000 !important;
+  border-left-color: #38bdf8 !important;
+  border: 1px solid rgba(56, 189, 248, 0.5) !important;
+  box-shadow: 0 2px 15px rgba(0, 0, 0, 0.6) !important;
+  padding: 1.2rem !important;
+}
+
+.dark-mode .rag-message-context h6 {
+  color: #38bdf8 !important;
+  font-weight: 700 !important;
+  font-size: 1.1rem !important;
+  margin-bottom: 1rem !important;
+  text-shadow: 0 0 3px rgba(56, 189, 248, 0.5) !important;
+}
+
+/* 确保所有文本元素在深色模式下都清晰可见 */
+.dark-mode .rag-context * {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+.dark-mode .rag-context h1,
+.dark-mode .rag-context h2,
+.dark-mode .rag-context h3,
+.dark-mode .rag-context h4,
+.dark-mode .rag-context h5,
+.dark-mode .rag-context h6 {
+  color: #f0f9ff !important;
+  font-weight: 600 !important;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.3) !important;
+}
+
+.dark-mode .rag-context strong {
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.4) !important;
+}
+
+.dark-mode .rag-context em {
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.3) !important;
+}
+
+/* 确保背景和文字的对比度最大化 */
+.dark-mode .rag-context {
+  background: #000000 !important;
+}
+
+/* 修复可能的继承问题 */
+.dark-mode .rag-message-context {
+  background: #000000 !important;
+}
+
+.dark-mode .rag-message-context > * {
+  color: #ffffff !important;
+}
+
+/* 清空历史按钮 */
+.rag-clear-btn {
+  padding: 0.4rem 0.8rem;
+  background: #f87171;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.rag-clear-btn:hover {
+  background: #ef4444;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+.rag-clear-btn:disabled {
+  background: #fca5a5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* 深色模式下的会话历史样式 */
+.dark-mode .rag-messages-container {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: var(--border-color);
+}
+
+.dark-mode .rag-message.user .rag-message-content {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.dark-mode .rag-message.assistant .rag-message-content {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.dark-mode .rag-message-context {
+  background: rgba(56, 189, 248, 0.1);
+  border-left-color: #38bdf8;
+}
+
+.dark-mode .rag-message-context h6 {
+  color: #38bdf8;
+}
+
+/* 消息容器滚动条样式 */
+.rag-messages-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.rag-messages-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 3px;
+}
+
+.rag-messages-container::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.rag-messages-container::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
+
+.dark-mode .rag-messages-container::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dark-mode .rag-messages-container::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+}
+
+.dark-mode .rag-messages-container::-webkit-scrollbar-thumb:hover {
+  background: #666;
 }
 
 .dark-mode .diff-removed {

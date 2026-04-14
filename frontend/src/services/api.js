@@ -206,4 +206,9 @@ export const tokenUsageApi = {
     clear: () => api.delete('/token-usage/'),
 };
 
+export const ragApi = {
+    query: (question, model = null, history = []) => api.post('/rag/query', { question, model, history }),
+    refreshIndex: () => api.post('/rag/refresh-index'),
+};
+
 export default api;

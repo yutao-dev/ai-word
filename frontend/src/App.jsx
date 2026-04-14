@@ -4,6 +4,7 @@ import './App.css'
 import Sidebar from './components/Sidebar'
 import AiPanel from './components/AiPanel'
 import AIWorkflowPanel from './components/AIWorkflowPanel'
+import RAGPanel from './components/RAGPanel'
 import SettingsModal from './components/SettingsModal'
 import DiffModal from './components/DiffModal'
 import EditorPane from './components/EditorPane'
@@ -45,6 +46,7 @@ function App() {
   const [showAIWorkflow, setShowAIWorkflow] = useState(false)
   const [showTokenUsage, setShowTokenUsage] = useState(false)
   const [showMcpPanel, setShowMcpPanel] = useState(false)
+  const [showRAGPanel, setShowRAGPanel] = useState(false)
   const [editorWidth, setEditorWidth] = useState(50)
   const [aiWorkflowWidth, setAiWorkflowWidth] = useState(400)
   const [isDragging, setIsDragging] = useState(false)
@@ -292,6 +294,17 @@ function App() {
           </button>
           <button 
             className="header-btn"
+            onClick={() => setShowRAGPanel(!showRAGPanel)}
+            title="AI 知识库问答"
+            style={{ 
+              backgroundColor: showRAGPanel ? '#dbeafe' : 'transparent',
+              color: showRAGPanel ? '#1e40af' : 'inherit'
+            }}
+          >
+            📚
+          </button>
+          <button 
+            className="header-btn"
             onClick={toggleDarkMode}
             title={isDarkMode ? "切换到浅色模式" : "切换到深色模式"}
           >
@@ -353,6 +366,12 @@ function App() {
                 }}
               />
             </>
+          )}
+          
+          {showRAGPanel && (
+            <div className="rag-panel-container">
+              <RAGPanel onClose={() => setShowRAGPanel(false)} />
+            </div>
           )}
         </div>
       </div>
